@@ -1,0 +1,25 @@
+[project]
+name = "mcp-docs-search"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ana Izaguirre", email = "ana.cimatamoros@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.0.0",
+]
+
+[project.scripts]
+mcp-docs-search = "mcp_docs_search:main"
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "pytest>=9.1.1",
+]
