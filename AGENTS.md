@@ -1,7 +1,4 @@
 # docs-mcp — Setup de OpenCode
-
-> Acompaña a `spec-docs-mcp-fase1.md`. Ese archivo dice **qué** construir; este dice **cómo** trabajarlo con el agente.
-
 ---
 
 ## Paso 0 — Preparar el repo (15 min, una sola vez)
@@ -63,14 +60,23 @@ If a task seems to require any of these, stop and ask instead of implementing.
   outside the indexed folder is rejected — no path traversal.
 - Errors returned to the agent must be actionable. "Database not found — run
   `docs-mcp index ./docs`" is correct. A raw `sqlite3.OperationalError` is not.
+- The `chunks` table is FTS5: no column types, no constraints, no external
+  indexes. FTS5 maintains its own inverted index.
+- FTS5 ranking uses `ORDER BY rank` ascending — bm25() returns negative
+  values where more negative means more relevant. Never `DESC`.
 
 ## Workflow
 
 - Work in thin vertical slices. One tool or one module per task, not three at once.
 - Tests before implementation. A task is not started until its test exists and fails.
 - Commit after each task passes. Small commits, present-tense messages.
-- Never mark a task done without showing the actual test output. "Should work" is
-  not evidence.
+- Commit messages follow Conventional Commits: `<type>: <imperative description>`.
+  Types: feat, fix, docs, test, refactor, chore, ci, perf.
+  Lowercase after the colon, no trailing period, under 72 characters.
+- Never mark a task done without showing the actual test output.
+- Tests import from the installed package path (`mcp_docs_search.x`), never a
+  bare module name.
+- Tests use pytest's `tmp_path` fixture, never tempfile with manual cleanup.
 
 ## Definition of done, per task
 
