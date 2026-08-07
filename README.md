@@ -3,6 +3,7 @@
 ![CI](https://github.com/ana-izaguirre/mcp-docs-search/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-1-brightgreen)
+![CodeQL](https://github.com/ana-izaguirre/mcp-docs-search/actions/workflows/github-code-scanning/codeql/badge.svg)
 
 An MCP server that gives AI coding agents keyword search over a folder of
 markdown documentation. Built on SQLite FTS5 — one runtime dependency, no
