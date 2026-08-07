@@ -142,7 +142,3 @@ ad-hoc prompting.
 
 The decision log is the interesting file. It records the FTS5 ranking bug that
 passed every test while returning the worst results first, among others.
-
-## License
-
-MIT
