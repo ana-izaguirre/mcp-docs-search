@@ -1,8 +1,7 @@
 import sqlite3
 import tempfile
 import pytest
-from datetime import datetime
-from mcp_docs_search.store import create_tables, insert_chunk, search
+from store import create_tables, insert_chunk, search
 
 
 def test_create_tables_creates_database():
