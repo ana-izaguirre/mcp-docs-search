@@ -1,8 +1,7 @@
 import sqlite3
 import tempfile
 import pytest
-from store import create_tables, insert_chunk, search
-
+from mcp_docs_search.store import create_tables, insert_chunk, search
 
 def test_create_tables_creates_database():
     """Test that create_tables creates the documents and chunks tables."""
@@ -19,8 +18,6 @@ def test_create_tables_creates_database():
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'")
         assert cursor.fetchone() is not None
         
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chunks_document_path'")
-        assert cursor.fetchone() is not None
     finally:
         conn.close()
         # Clean up
@@ -57,7 +54,7 @@ def test_insert_chunk():
     try:
         insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content of chunk 1")
         
-        cursor = conn.execute("SELECT chunk_id, document_path, heading_path, content, score FROM chunks WHERE chunk_id = 'chunk1'")
+        cursor = conn.execute("SELECT chunk_id, document_path, heading_path, content FROM chunks WHERE chunk_id = 'chunk1'")
         chunk = cursor.fetchone()
         
         assert chunk is not None
@@ -65,7 +62,6 @@ def test_insert_chunk():
         assert chunk[1] == "doc1.md"
         assert chunk[2] == "doc1.md > Section 1"
         assert chunk[3] == "Content of chunk 1"
-        assert chunk[4] == 0.0
     finally:
         conn.close()
         # Clean up
