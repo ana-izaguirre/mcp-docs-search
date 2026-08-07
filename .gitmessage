@@ -1,0 +1,6 @@
+# <type>: <description>
+#
+# feat  · new functionality        fix   · bug fix
+# docs  · documentation            test  · tests
+# chore · tooling, config          ci    · pipelines
+# refactor · no behaviour change   perf  · performance
