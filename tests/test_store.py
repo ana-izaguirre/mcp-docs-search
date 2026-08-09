@@ -3,7 +3,7 @@ import tempfile
 import pytest
 from mcp_docs_search.store import create_tables, insert_chunk, search
 
-def test_create_tables_creates_database():
+def test_create_tables_creates_database() -> None:
     """Test that create_tables creates the documents and chunks tables."""
     # Use a temp file that doesn't exist yet
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
@@ -26,7 +26,7 @@ def test_create_tables_creates_database():
             os.unlink(db_path)
 
 
-def test_create_tables_fails_on_existing_file():
+def test_create_tables_fails_on_existing_file() -> None:
     """Test that create_tables fails when database file already exists."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         db_path = f.name
@@ -44,7 +44,7 @@ def test_create_tables_fails_on_existing_file():
         os.unlink(db_path)
 
 
-def test_insert_chunk():
+def test_insert_chunk() -> None:
     """Test that insert_chunk properly inserts a chunk."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
@@ -70,7 +70,7 @@ def test_insert_chunk():
             os.unlink(db_path)
 
 
-def test_insert_chunk_rejects_empty_content():
+def test_insert_chunk_rejects_empty_content() -> None:
     """Test that insert_chunk rejects empty content."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
@@ -89,7 +89,7 @@ def test_insert_chunk_rejects_empty_content():
             os.unlink(db_path)
 
 
-def test_insert_chunk_rejects_too_long_content():
+def test_insert_chunk_rejects_too_long_content() -> None:
     """Test that insert_chunk rejects content that's too long."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
@@ -110,7 +110,7 @@ def test_insert_chunk_rejects_too_long_content():
             os.unlink(db_path)
 
 
-def test_search_with_valid_query():
+def test_search_with_valid_query() -> None:
     """Test that search returns results for a valid query."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
@@ -133,7 +133,7 @@ def test_search_with_valid_query():
             os.unlink(db_path)
 
 
-def test_search_empty_query():
+def test_search_empty_query() -> None:
     """Test that search rejects empty query."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
@@ -152,7 +152,7 @@ def test_search_empty_query():
             os.unlink(db_path)
 
 
-def test_search_invalid_limit():
+def test_search_invalid_limit() -> None:
     """Test that search validates limit parameter."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
