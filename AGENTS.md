@@ -1,12 +1,12 @@
-# mcp-docs-search — Setup de OpenCode
+# docs-mcp — Setup de OpenCode
 ---
 
 ## Paso 0 — Preparar el repo (15 min, una sola vez)
 
 ```bash
-mkdir mcp-docs-search && cd mcp-docs-search
+mkdir docs-mcp && cd docs-mcp
 git init
-uv init --package mcp-docs-search
+uv init --package docs-mcp
 ```
 
 Instalar las skills. **Solo estas cuatro** — no las 24, que llenan el contexto con cosas de frontend que aquí no aplican:
@@ -18,7 +18,7 @@ npx skills add addyosmani/agent-skills --skill planning-and-task-breakdown
 npx skills add addyosmani/agent-skills --skill documentation-and-adrs
 ```
 
-Guardar `spec-mcp-docs-search-fase1.md` en la raíz como `SPEC.md`, y crear el `AGENTS.md` de la sección siguiente.
+Guardar `spec-docs-mcp-fase1.md` en la raíz como `SPEC.md`, y crear el `AGENTS.md` de la sección siguiente.
 
 ---
 
@@ -29,7 +29,7 @@ Guardar `spec-mcp-docs-search-fase1.md` en la raíz como `SPEC.md`, y crear el `
 
 ## Project
 
-`mcp-docs-search` — an MCP server that indexes a folder of markdown documentation and
+`docs-mcp` — an MCP server that indexes a folder of markdown documentation and
 exposes keyword search to an AI agent. Written in Python.
 
 The full specification lives in `SPEC.md`. Read it before starting any task.
@@ -48,21 +48,18 @@ If a task seems to require any of these, stop and ask instead of implementing.
 
 ## Technical constraints
 
-- Python 3.12. Type hints on every public function. `mypy --strict` must pass.
+- Python 3.11+. Type hints on every public function. `mypy --strict` must pass.
 - Only one runtime dependency: the `mcp` package. Everything else comes from the
   standard library. Adding a dependency requires explicit justification and my
   approval — do not add one unilaterally.
 - Storage is SQLite with FTS5, from the stdlib `sqlite3` module. Do not introduce
   an ORM, a migration tool, or an external database.
-- **The MCP server must never write to stdout** � stdout is the protocol
-  channel. In `server.py` and anything it imports, all output goes to
-  stderr via `logging`. A `print()` there is a bug.
-- The CLI (`cli.py`) is a separate entry point and does write to stdout:
-  progress and results to stdout, warnings and errors to stderr.
+- **Never write to stdout.** stdout is the MCP protocol channel. All logging goes
+  to stderr via the `logging` module. A `print()` anywhere in `src/` is a bug.
 - Validate tool inputs at the boundary. `limit` is clamped to 1-20. A `path`
   outside the indexed folder is rejected — no path traversal.
 - Errors returned to the agent must be actionable. "Database not found — run
-  `mcp-docs-search index ./docs`" is correct. A raw `sqlite3.OperationalError` is not.
+  `docs-mcp index ./docs`" is correct. A raw `sqlite3.OperationalError` is not.
 - The `chunks` table is FTS5: no column types, no constraints, no external
   indexes. FTS5 maintains its own inverted index.
 - FTS5 ranking uses `ORDER BY rank` ascending — bm25() returns negative
@@ -80,21 +77,35 @@ If a task seems to require any of these, stop and ask instead of implementing.
 - Tests import from the installed package path (`mcp_docs_search.x`), never a
   bare module name.
 - Tests use pytest's `tmp_path` fixture, never tempfile with manual cleanup.
+- Do not execute commands. Not git, not uv, not pytest, not shell of any kind.
+  Assume the repository and environment are in the state described in the prompt.
+- Do not read files from the repository. All necessary context is in the prompt.
+  If something is missing, say so and stop.
+- If you believe a command must be run, state which one and why, then stop.
+- Do not implement functions belonging to other tasks in docs/tasks.md, even if
+  they seem necessary. Each task has a closed scope.
+- Parsing modules do not import sqlite3 or store.py. Persistence is wired in
+  the CLI layer.
 
 ## Definition of done, per task
 
-- [ ] Test written first, fails for the right reason, then passes
-- [ ] `mypy --strict src/ tests/` passes
-- [ ] `pytest` passes, output shown
-- [ ] No `print()` in `src/`
-- [ ] Committed
+Yours (the agent):
+- [ ] Test written first, in the same response as the implementation
+- [ ] Type hints on every public function; no `Any`, no `type: ignore`
+- [ ] No `print()` anywhere in `src/`
+- [ ] Only stdlib plus `mcp`
+
+Mine (the human) — do not attempt these:
+- [ ] Running pytest and mypy
+- [ ] Verifying output
+- [ ] Committing
 
 ## Commands
 
 ```bash
 uv run pytest              # tests
-uv run mypy --strict src/ tests/  # types
-uv run mcp-docs-search index ./docs --db ./docs.db
+uv run mypy --strict src/  # types
+uv run docs-mcp index ./docs --db ./docs.db
 uv run python evals/run_evals.py
 ```
 
@@ -108,86 +119,4 @@ When you propose an approach and I choose differently, append the exchange to
 Do not write entries for trivial choices. Only decisions that a future reader
 would otherwise question.
 ```
-
----
-
-## Plan de sesiones (45 min cada una)
-
-### Sesión 1 — Plan
-```
-Read SPEC.md and AGENTS.md. Break Phase 1 into small, verifiable tasks
-with acceptance criteria and dependency ordering. Write the result to
-docs/tasks.md. Do not write any implementation code yet.
-```
-Revisa la lista antes de seguir. Si tiene más de 15 tareas, pídele que las agrupe.
-
-### Sesión 2 — Store
-```
-Implement task 1 from docs/tasks.md: the SQLite FTS5 store in src/mcp_docs_search/store.py.
-Tests first.
-```
-
-### Sesión 3 — Chunking
-```
-Implement the markdown chunking in src/mcp_docs_search/ingest.py. Heading-based, with
-the heading path preserved on each chunk. Tests first — include the merge and
-split edge cases from SPEC.md section 4.
-```
-
-### Sesión 4 — CLI de indexado
-```
-Implement the `mcp-docs-search index` command wiring ingest to store, with --rebuild.
-```
-
-### Sesión 5 — Servidor MCP
-```
-Implement the MCP server in src/mcp_docs_search/server.py with the search_docs tool only.
-Remember: nothing to stdout.
-```
-**Aquí ya funciona de punta a punta.** Conéctalo a OpenCode y pruébalo tú misma.
-
-### Sesión 6 — README y demo
-```
-Write the README following the required sections in SPEC.md section 9.
-Leave the "Retrieval quality" section as a placeholder for now.
-```
-Graba el GIF tú, con una sesión real. **Publica el repo aquí**, aunque falten tools.
-
-### Sesión 7 — Evals
-```
-Implement evals/run_evals.py and the fixtures. Report recall@1 and recall@3.
-Run it and put the real numbers in the README.
-```
-
-### Sesión 8 — Cierre
-```
-Implement list_sources and get_document. Then set up GitHub Actions running
-pytest and mypy --strict.
-```
-
-### Sesión 9 — Revisión con contexto limpio
-Sesión **nueva**, sin el historial de las anteriores:
-```
-Review this repository as a senior engineer would before approving a merge.
-Focus on: input validation at boundaries, error messages, anything written to
-stdout, and test coverage of the failure paths.
-```
-
----
-
-## Reglas de trabajo con el agente
-
-**Una tarea por sesión.** Si le das tres, hace las tres a medias.
-
-**Exige la salida de los tests.** Si dice "los tests pasan" sin pegarlos, pídeselos. Es el error más frecuente y el más caro.
-
-**Cuando lo corrijas, apúntalo.** Cada vez que rechaces una propuesta suya, pídele que añada la entrada a `docs/decisions.md`. Ese archivo es tu evidencia de criterio, y se escribe solo si lo pides en el momento.
-
-**Si empieza a irse de alcance** —sugiere embeddings, propone añadir una dependencia— recuérdale el `AGENTS.md`. Que se desvíe no es fallo tuyo; corregirlo rápido es la habilidad.
-
----
-
-## Si solo tienes tiempo para tres sesiones
-
-Sesiones 2, 3 y 5, y publicas con un README mínimo. Un servidor MCP que funciona y está publicado vale más que uno perfecto sin publicar.
 

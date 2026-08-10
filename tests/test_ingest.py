@@ -112,3 +112,19 @@ def test_heading_inside_fenced_block_is_not_a_heading() -> None:
 def test_tilde_fence_and_unclosed_fence() -> None:
     assert len(chunk_markdown("# A\n\n~~~\n# no soy encabezado\n~~~\n")) == 1
     assert len(chunk_markdown("# A\n\n```\n# no soy encabezado\nsin cerrar\n")) == 1
+
+
+# --- MkDocs attr_list: "{ #anchor }" no es parte del titulo ----------------
+
+def test_attr_list_suffix_stripped_from_heading() -> None:
+    cases = [
+        ("## Quotes { #quotes }\n\nBody.\n", ("Quotes",)),
+        ("## Setup { #setup .class }\n\nBody.\n", ("Setup",)),
+        ("## Setup { #setup } ##\n\nBody.\n", ("Setup",)),
+        ("## Use {braces} in text\n\nBody.\n", ("Use {braces} in text",)),
+        ("## Setup\n\nBody.\n", ("Setup",)),
+    ]
+    for source, expected_path in cases:
+        chunks = chunk_markdown(source)
+        assert len(chunks) == 1, source
+        assert chunks[0].heading_path == expected_path, source

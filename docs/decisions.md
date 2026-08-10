@@ -97,3 +97,26 @@
 **Decided** — _split_sections stopped flushing its accumulated line buffer into the section when closing it, copying the still-empty cur.content instead; every merged section lost its body; no exception, no failing type check — content silently absent from the index
 
 **Why** — Detected by a test written before implementation that asserted the merged chunk's TEXT, not only its heading_path, level and start_line; those three assertions passed while the body was being dropped. Learning: verifying a chunk's identity is not the same as verifying its content; assert both.
+
+### Strip attr_list anchors from heading paths
+
+**Context** — Indexing the FastAPI documentation (155 files, 1927 chunks)
+produced heading paths like `_llm-test.md > Quotes { #quotes }`. The
+`{ #anchor }` suffix is MkDocs `attr_list` syntax, an extension outside
+CommonMark, used to give a heading a stable anchor id.
+
+**Proposed** — Leave heading text verbatim, since `attr_list` is not part of
+the markdown standard this parser targets.
+
+**Decided** — Strip a trailing brace block from the heading text before
+building heading_path. Only a block at the very end of the heading line;
+braces appearing mid-title are preserved.
+
+**Why** — heading_path is the value the MCP server returns to the agent, and
+the whole justification for heading-based chunking is that this path tells
+the agent *where* a result lives. Anchor syntax is noise in that channel.
+MkDocs is common enough in Python documentation that ignoring it would
+degrade the primary output on a large share of realistic corpora.
+
+**Found by** — Indexing a real third-party corpus rather than the project's
+own docs. The project's two markdown files never exercised this path.

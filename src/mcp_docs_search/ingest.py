@@ -99,7 +99,7 @@ def _split_sections(lines: list[str]) -> list[_Section]:
                     content=content_lines,
                 ))
             level = len(match.group(2))
-            text = _strip_trailing_hashes(match.group(3).strip())
+            text = _strip_attr_list(_strip_trailing_hashes(match.group(3).strip()))
             while stack and stack[-1][0] >= level:
                 stack.pop()
             stack.append((level, text))
@@ -138,6 +138,11 @@ def _split_sections(lines: list[str]) -> list[_Section]:
 def _strip_trailing_hashes(text: str) -> str:
     """Remove trailing ATX closing sequence (e.g. '## Setup ##' -> 'Setup')."""
     return re.sub(r"\s+#{1,6}\s*$", "", text).strip()
+
+
+def _strip_attr_list(text: str) -> str:
+    """Remove trailing MkDocs attr_list block (e.g. 'Setup { #setup }' -> 'Setup')."""
+    return re.sub(r"\s*\{[^}]*\}\s*$", "", text).strip()
 
 
 _HEADING_RE = re.compile(r"^( {0,3})(#{1,6})[ \t]+(.*)$")
