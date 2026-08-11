@@ -129,7 +129,7 @@ def create_server(db_path: Path) -> MCPServer:
     if not db_path.exists():
         msg = (
             f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search index ./docs --db {db_path}` first."
+            f"Run `mcp-docs-search ./docs --db {db_path}` first."
         )
         sys.stderr.write(msg + "\n")
         sys.exit(1)
@@ -139,7 +139,7 @@ def create_server(db_path: Path) -> MCPServer:
     except StoreError as exc:
         msg = (
             f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search index ./docs --db {db_path}` first."
+            f"Run `mcp-docs-search ./docs --db {db_path}` first."
         )
         logger.error("Failed to open database at %s: %s", db_path, exc)
         sys.stderr.write(msg + "\n")
