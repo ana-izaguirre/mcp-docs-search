@@ -2,10 +2,11 @@
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mcp_docs_search.ingest import chunk_markdown, format_heading_path
-from mcp_docs_search.store import create_tables, insert_chunk
+from mcp_docs_search.store import create_tables, insert_chunk, insert_document
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     files_indexed = 0
     chunks_written = 0
     files_skipped = 0
+    indexed_at = datetime.now(timezone.utc).isoformat()
 
     try:
         for file_idx, file_path in enumerate(md_files):
@@ -103,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
 
+            insert_document(conn, rel_path, indexed_at)
             files_indexed += 1
 
         conn.commit()

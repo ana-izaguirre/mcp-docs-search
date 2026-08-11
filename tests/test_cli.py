@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from mcp_docs_search.cli import main
-from mcp_docs_search.store import open_connection
+from mcp_docs_search.store import list_documents, open_connection
 
 
 def test_small_corpus_indexes_successfully(tmp_path: Path) -> None:
@@ -119,3 +119,81 @@ def test_stored_paths_use_forward_slashes(tmp_path: Path) -> None:
     paths = [row[0] for row in cursor.fetchall()]
     conn.close()
     assert paths == ["sub/deep/nested.md"]
+
+
+def test_documents_table_has_one_row_per_file(tmp_path: Path) -> None:
+    """After indexing, documents has one row per indexed file."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\nContent A.\n", encoding="utf-8")
+    (folder / "b.md").write_text("# B\n\nContent B.\n", encoding="utf-8")
+    db = tmp_path / "docs.db"
+
+    rc = main([str(folder), "--db", str(db)])
+
+    assert rc == 0
+    conn = open_connection(str(db))
+    cursor = conn.execute("SELECT COUNT(*) FROM documents")
+    count = cursor.fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
+def test_skipped_file_produces_no_document_row(tmp_path: Path) -> None:
+    """A file that fails to read is skipped and produces no documents row."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "good.md").write_text("# Good\n\nContent.\n", encoding="utf-8")
+    (folder / "bad.md").write_bytes(b"\xff\xfe\x00\x00Not valid UTF-8")
+    db = tmp_path / "docs.db"
+
+    rc = main([str(folder), "--db", str(db)])
+
+    assert rc == 0
+    conn = open_connection(str(db))
+    cursor = conn.execute("SELECT COUNT(*) FROM documents")
+    count = cursor.fetchone()[0]
+    conn.close()
+    assert count == 1
+
+
+def test_list_documents_chunk_count_matches(tmp_path: Path) -> None:
+    """list_documents chunk_count matches the actual number of chunks."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "multi.md").write_text(
+        "# First\n\n" + "x" * 200 + "\n\n## Second\n\n" + "y" * 200 + "\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "docs.db"
+
+    rc = main([str(folder), "--db", str(db)])
+
+    assert rc == 0
+    conn = open_connection(str(db))
+    cursor = conn.execute("SELECT COUNT(*) FROM chunks")
+    chunk_count = cursor.fetchone()[0]
+    docs = list_documents(conn)
+    conn.close()
+    assert len(docs) == 1
+    assert docs[0].chunk_count == chunk_count
+
+
+def test_rebuild_leaves_no_orphan_documents(tmp_path: Path) -> None:
+    """Reindexing with --rebuild replaces the database cleanly."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\nContent A.\n", encoding="utf-8")
+    db = tmp_path / "docs.db"
+
+    main([str(folder), "--db", str(db)])
+    (folder / "b.md").write_text("# B\n\nContent B.\n", encoding="utf-8")
+
+    rc = main([str(folder), "--db", str(db), "--rebuild"])
+
+    assert rc == 0
+    conn = open_connection(str(db))
+    cursor = conn.execute("SELECT COUNT(*) FROM documents")
+    count = cursor.fetchone()[0]
+    conn.close()
+    assert count == 2

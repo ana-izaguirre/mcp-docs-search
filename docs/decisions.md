@@ -120,3 +120,13 @@ degrade the primary output on a large share of realistic corpora.
 
 **Found by** — Indexing a real third-party corpus rather than the project's
 own docs. The project's two markdown files never exercised this path.
+
+### Nobody owned the documents table
+
+**Context** — The `documents` table was created by the schema but nothing ever inserted into it. Indexing produced 40 chunks and 0 documents, so list_sources returned an empty list and every eval query failed.
+
+**Proposed** — Task 1 built the store, task 3 built the CLI. Each specification had a closed scope and neither claimed ownership of the seam between them.
+
+**Decided** — store.py exposes the insert; cli.py calls it once per indexed file, in the same transaction path as the chunk inserts.
+
+**Why** — Found by the eval harness, the first thing to exercise the full path: index for real, then query for real. Closed-scope task decomposition keeps an agent from overreaching, but it leaves gaps at the seams. Per-layer tests do not cover them; at least one test must cross the whole system.

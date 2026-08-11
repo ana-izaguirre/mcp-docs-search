@@ -5,6 +5,7 @@ from mcp_docs_search.store import (
     create_tables,
     get_chunks,
     insert_chunk,
+    insert_document,
     list_documents,
     open_connection,
     sanitise_query,
@@ -113,6 +114,47 @@ def test_insert_chunk_rejects_too_long_content() -> None:
             insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", long_content)
         
         assert "too long" in str(exc_info.value).lower()
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_insert_document_records_path_and_timestamp() -> None:
+    """Test that insert_document records a document row."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        insert_document(conn, "doc.md", "2025-01-15T10:30:00+00:00")
+        conn.commit()
+
+        cursor = conn.execute("SELECT path, indexed_at FROM documents")
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == "doc.md"
+        assert row[1] == "2025-01-15T10:30:00+00:00"
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_insert_document_rejects_empty_path() -> None:
+    """Test that insert_document rejects an empty path."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        with pytest.raises(ValueError) as exc_info:
+            insert_document(conn, "", "2025-01-15T10:30:00+00:00")
+        assert "path" in str(exc_info.value).lower()
     finally:
         conn.close()
         import os
