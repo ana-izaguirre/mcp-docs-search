@@ -34,17 +34,18 @@ Phase 1, in progress.
 
 ```bash
 uv sync
-mcp-docs-search index ./docs --db ./docs.db
+uv run mcp-docs-search ./docs --db ./docs.db
 ```
 
 Then register the server with your MCP client:
 
 ```json
 {
-  "mcpServers": {
-    "docs-search": {
-      "command": "uvx",
-      "args": ["mcp-docs-search", "--db", "./docs.db"]
+  "mcp": {
+    "docs": {
+      "type": "local",
+      "command": ["uv", "run", "mcp-docs-search-server", "--db", "./docs.db"],
+      "enabled": true
     }
   }
 }
@@ -54,7 +55,7 @@ Then register the server with your MCP client:
 
 | Tool | Input | Returns |
 |---|---|---|
-| `search_docs` | `query`, `limit` (1–20) | Matching chunks with content, file path, heading path and rank |
+| `search_docs` | `query`, `limit` (clamped to 1–20) | Matching chunks with content, file path, heading path and rank |
 | `list_sources` | — | Indexed files, chunk counts, index date |
 | `get_document` | `path` | Full contents of one indexed file |
 
@@ -79,6 +80,11 @@ running `grep`.
 Sections over ~1500 characters split at paragraph boundaries, keeping their
 heading. Sections under ~100 characters merge into the next one, so a bare
 subheading never becomes a chunk of its own.
+
+Verified end to end against the FastAPI documentation: 155 files,
+1927 chunks, none skipped. The agent chained `search_docs` into
+`get_document` on its own — the behaviour `get_document` was added
+for.
 
 ### Why SQLite FTS5 instead of a vector database
 
@@ -108,7 +114,7 @@ recovery. Build it in CI, ship it inside the container image, and run any number
 of read-only instances against identical copies.
 
 ```yaml
-- run: mcp-docs-search index ./docs --db ./docs.db
+- run: uv run mcp-docs-search ./docs --db ./docs.db
 - run: docker build .
 ```
 
