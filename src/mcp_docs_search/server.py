@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from pathlib import Path
@@ -145,7 +146,7 @@ def create_server(db_path: Path) -> MCPServer:
         sys.stderr.write(msg + "\n")
         sys.exit(1)
 
-    server = MCPServer("docs-mcp")
+    server = MCPServer("mcp-docs-search")
 
     @server.tool()
     async def search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchResultItem]:
@@ -189,9 +190,12 @@ def create_server(db_path: Path) -> MCPServer:
 
 
 def main() -> None:
-    db_path = Path("docs.db")
-    server = create_server(db_path)
+    parser = argparse.ArgumentParser(prog="mcp-docs-search-server")
+    parser.add_argument("--db", type=Path, default=Path("docs.db"))
+    args = parser.parse_args()
+
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    server = create_server(args.db)
     server.run()
 
 

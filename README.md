@@ -25,9 +25,9 @@ it — getting back the relevant passages with the file and heading they came fr
 Phase 1, in progress.
 
 - [x] SQLite FTS5 store — indexing, search, input validation
-- [ ] Heading-based markdown chunking
-- [ ] `index` CLI command
-- [ ] MCP server with `search_docs`, `list_sources`, `get_document`
+- [x] Heading-based markdown chunking
+- [x] `index` CLI command
+- [x] MCP server with `search_docs`, `list_sources`, `get_document`
 - [ ] Retrieval evaluation harness
 
 ## Quick start

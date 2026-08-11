@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 mcp-docs-search = "mcp_docs_search.cli:main"
+mcp-docs-search-server = "mcp_docs_search.server:main"
 
 [build-system]
 requires = ["uv_build>=0.12.2,<0.13.0"]
