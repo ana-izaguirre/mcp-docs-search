@@ -5,14 +5,21 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TypedDict
 
 from mcp.server import MCPServer
 
-from mcp_docs_search.store import open_connection
-
-if TYPE_CHECKING:
-    import sqlite3
+from mcp_docs_search.store import (
+    Connection,
+    DocumentInfo,
+    ScoredResult,
+    StoreError,
+    get_chunks,
+    list_documents,
+    open_connection,
+    sanitise_query,
+    search_with_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +27,24 @@ DEFAULT_LIMIT = 5
 MIN_LIMIT = 1
 MAX_LIMIT = 20
 
-_conn: sqlite3.Connection | None = None
+_conn: Connection | None = None
 
 
-def _get_conn() -> sqlite3.Connection:
+class SearchResultItem(TypedDict):
+    chunk_id: str
+    document_path: str
+    heading_path: str
+    content: str
+    score: float
+
+
+class SourceInfo(TypedDict):
+    path: str
+    indexed_at: str
+    chunk_count: int
+
+
+def _get_conn() -> Connection:
     if _conn is None:
         raise RuntimeError("Database connection not initialized")
     return _conn
@@ -39,91 +60,63 @@ def _clamp_limit(limit: int | None) -> int:
     return limit
 
 
-def _coerce_float(value: object) -> float:
-    if isinstance(value, (int, float)):
-        return float(value)
-    return 0.0
+def _scored_to_dict(result: ScoredResult) -> SearchResultItem:
+    return SearchResultItem(
+        chunk_id=result.chunk_id,
+        document_path=result.document_path,
+        heading_path=result.heading_path,
+        content=result.content,
+        score=result.score,
+    )
 
 
-def _row_to_dict(row: tuple[object, ...]) -> dict[str, object]:
-    return {
-        "chunk_id": str(row[0]),
-        "document_path": str(row[1]),
-        "heading_path": str(row[2]),
-        "content": str(row[3]),
-        "score": _coerce_float(row[4]),
-    }
+def _doc_to_dict(info: DocumentInfo) -> SourceInfo:
+    return SourceInfo(
+        path=info.path,
+        indexed_at=info.indexed_at,
+        chunk_count=info.chunk_count,
+    )
 
 
-def _serialize_results(results: list[tuple[object, ...]]) -> list[dict[str, object]]:
-    return [_row_to_dict(row) for row in results]
-
-
-async def _search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, object]]:
+async def _search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchResultItem]:
     clamped = _clamp_limit(limit)
     if not query or not query.strip():
         return []
+    safe_query = sanitise_query(query)
     try:
-        results = list(_get_conn().execute(
-            """
-            SELECT chunk_id, document_path, heading_path, content, bm25(chunks) AS score
-            FROM chunks
-            WHERE chunks MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, clamped),
-        ))
-        return _serialize_results(results)
-    except Exception as exc:
+        results = search_with_score(_get_conn(), safe_query, clamped)
+        return [_scored_to_dict(r) for r in results]
+    except StoreError as exc:
         logger.error("search_docs failed: %s", exc)
-        return [{"error": "Search failed — check server logs for details."}]
+        return []
 
 
-async def _list_sources() -> list[dict[str, str]]:
+async def _list_sources() -> list[SourceInfo]:
     try:
-        docs = list(_get_conn().execute(
-            "SELECT path, indexed_at FROM documents ORDER BY path"
-        ))
-        counts = {
-            row[0]: row[1]
-            for row in _get_conn().execute(
-                "SELECT document_path, COUNT(*) FROM chunks GROUP BY document_path"
-            )
-        }
-        return [
-            {
-                "path": str(path),
-                "indexed_at": str(indexed_at),
-                "chunk_count": str(counts.get(path, 0)),
-            }
-            for path, indexed_at in docs
-        ]
-    except Exception as exc:
+        docs = list_documents(_get_conn())
+        return [_doc_to_dict(d) for d in docs]
+    except StoreError as exc:
         logger.error("list_sources failed: %s", exc)
-        return [{"error": "Failed to list sources — check server logs for details."}]
+        return []
 
 
 async def _get_document(path: str) -> str:
     if not path or not path.strip():
-        return "Path parameter is required."
+        return "Path parameter is required. Provide a document path from list_sources."
     try:
-        row = _get_conn().execute(
-            "SELECT 1 FROM documents WHERE path = ? LIMIT 1", (path,)
-        ).fetchone()
-        if row is None:
+        chunks = get_chunks(_get_conn(), path)
+        if not chunks:
             return (
                 f"Document not found: '{path}'. "
                 f"Use list_sources to see available documents."
             )
-        chunks = list(_get_conn().execute(
-            "SELECT content FROM chunks WHERE document_path = ? ORDER BY chunk_id",
-            (path,),
-        ))
-        return "\n\n".join(str(chunk[0]) for chunk in chunks)
-    except Exception as exc:
+        return "\n\n".join(chunks)
+    except StoreError as exc:
         logger.error("get_document failed: %s", exc)
-        return "Error retrieving document — check server logs for details."
+        return (
+            "Search service temporarily unavailable. "
+            "Try again or use list_sources to browse documents."
+        )
 
 
 def create_server(db_path: Path) -> MCPServer:
@@ -143,8 +136,7 @@ def create_server(db_path: Path) -> MCPServer:
 
     try:
         _conn = open_connection(str(db_path))
-        _conn.execute("PRAGMA query_only = 1")
-    except Exception as exc:
+    except StoreError as exc:
         msg = (
             f"Database not found: {db_path}. "
             f"Run `mcp-docs-search index ./docs --db {db_path}` first."
@@ -156,18 +148,41 @@ def create_server(db_path: Path) -> MCPServer:
     server = MCPServer("docs-mcp")
 
     @server.tool()
-    async def search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, object]]:
-        """Search indexed markdown documents by keyword using FTS5 full-text search."""
+    async def search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchResultItem]:
+        """Search indexed markdown documents by keyword using FTS5 full-text search.
+
+        Returns text chunks ranked by relevance, each with its source
+        document path, heading hierarchy, and a BM25 score. Use this
+        when looking for specific information across the documentation
+        and you do not know which file contains the answer. Prefer this
+        over get_document for discovery. Results are ordered most
+        relevant first; try broader keywords if nothing matches.
+        """
         return await _search_docs(query, limit)
 
     @server.tool()
-    async def list_sources() -> list[dict[str, str]]:
-        """List all indexed documents with chunk count and indexing timestamp."""
+    async def list_sources() -> list[SourceInfo]:
+        """List all indexed documents with their metadata.
+
+        Returns every document path, when it was indexed, and how many
+        searchable chunks it contains. Use this to discover what
+        documentation is available, to verify a document path before
+        calling get_document, or when the agent needs to know the full
+        corpus scope before searching.
+        """
         return await _list_sources()
 
     @server.tool()
     async def get_document(path: str) -> str:
-        """Retrieve the full content of an indexed document by path."""
+        """Retrieve the full content of one indexed document.
+
+        Returns the complete text of a single document, reconstructed
+        from all its chunks in order. Use this when the agent needs the
+        full context around a search result or already knows exactly
+        which file to read. Prefer search_docs when looking for
+        specific information without knowing the source file. The path
+        must match exactly what list_sources returns.
+        """
         return await _get_document(path)
 
     return server

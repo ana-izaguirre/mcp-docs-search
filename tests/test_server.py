@@ -12,7 +12,12 @@ from mcp_docs_search.server import (
     _search_docs,
     create_server,
 )
-from mcp_docs_search.store import create_tables, insert_chunk, open_connection
+from mcp_docs_search.store import (
+    create_tables,
+    insert_chunk,
+    open_connection,
+    sanitise_query,
+)
 
 import mcp_docs_search.server as server_mod
 
@@ -166,3 +171,32 @@ def test_clamp_limit_default() -> None:
     assert _clamp_limit(21) == 20
     assert _clamp_limit(100) == 20
     assert _clamp_limit(5) == 5
+
+
+# --- FTS5 query sanitiser -----------------------------------------------
+
+
+def test_sanitise_query_wraps_terms_in_quotes() -> None:
+    assert sanitise_query("hello world") == '"hello" "world"'
+
+
+def test_sanitise_query_escapes_internal_quotes() -> None:
+    assert sanitise_query('say "hi"') == '"say" """hi"""'
+
+
+def test_sanitise_query_handles_special_operators() -> None:
+    result = sanitise_query("port* NEAR(foo) AND bar")
+    assert isinstance(result, str)
+    assert '"' in result
+
+
+def test_sanitise_query_empty_string() -> None:
+    assert sanitise_query("") == ""
+
+
+def test_sanitise_query_whitespace_only() -> None:
+    assert sanitise_query("   ") == ""
+
+
+def test_sanitise_query_single_term() -> None:
+    assert sanitise_query("retries") == '"retries"'

@@ -1,7 +1,17 @@
 import sqlite3
 import tempfile
 import pytest
-from mcp_docs_search.store import create_tables, insert_chunk, search
+from mcp_docs_search.store import (
+    create_tables,
+    get_chunks,
+    insert_chunk,
+    list_documents,
+    open_connection,
+    sanitise_query,
+    search,
+    search_with_score,
+    StoreError,
+)
 
 def test_create_tables_creates_database() -> None:
     """Test that create_tables creates the documents and chunks tables."""
@@ -35,9 +45,9 @@ def test_create_tables_fails_on_existing_file() -> None:
         conn = sqlite3.connect(db_path)
         conn.close()
         
-        with pytest.raises(sqlite3.OperationalError) as exc_info:
+        with pytest.raises(StoreError) as exc_info:
             create_tables(db_path)
-        
+
         assert "already exists" in str(exc_info.value).lower()
     finally:
         import os
@@ -156,21 +166,148 @@ def test_search_invalid_limit() -> None:
     """Test that search validates limit parameter."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
         db_path = f.name
-    
+
     conn = create_tables(db_path)
-    
+
     try:
         with pytest.raises(ValueError) as exc_info:
             search(conn, "test", 0)
-        
+
         assert "between 1 and 20" in str(exc_info.value)
-        
+
         with pytest.raises(ValueError) as exc_info:
             search(conn, "test", 21)
-        
+
         assert "between 1 and 20" in str(exc_info.value)
     finally:
         conn.close()
         import os
         if os.path.exists(db_path):
             os.unlink(db_path)
+
+
+def test_search_with_score_returns_scores() -> None:
+    """Test that search_with_score includes BM25 score."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        insert_chunk(conn, "c1", "doc.md", "doc.md > S", "content about testing")
+        results = search_with_score(conn, "testing", 5)
+        assert len(results) == 1
+        assert results[0].chunk_id == "c1"
+        assert isinstance(results[0].score, float)
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_list_documents_returns_all_with_counts() -> None:
+    """Test that list_documents returns every document with chunk counts."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        conn.execute(
+            "INSERT INTO documents (path, indexed_at) VALUES ('a.md', '2025-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO documents (path, indexed_at) VALUES ('b.md', '2025-01-02')"
+        )
+        insert_chunk(conn, "0_0", "a.md", "a.md > Intro", "hello world")
+        conn.commit()
+
+        docs = list_documents(conn)
+        assert len(docs) == 2
+        paths = {d.path for d in docs}
+        assert paths == {"a.md", "b.md"}
+        by_path = {d.path: d for d in docs}
+        assert by_path["a.md"].chunk_count == 1
+        assert by_path["b.md"].chunk_count == 0
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_get_chunks_ordered_by_chunk_id() -> None:
+    """Test that get_chunks returns content in chunk_id order."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        insert_chunk(conn, "0_1", "doc.md", "doc.md > Second", "second chunk")
+        insert_chunk(conn, "0_0", "doc.md", "doc.md > First", "first chunk")
+        conn.commit()
+
+        chunks = get_chunks(conn, "doc.md")
+        assert chunks == ["first chunk", "second chunk"]
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_get_chunks_empty_for_unknown_path() -> None:
+    """Test that get_chunks returns empty list for unknown document."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+
+    try:
+        chunks = get_chunks(conn, "nonexistent.md")
+        assert chunks == []
+    finally:
+        conn.close()
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_open_connection_missing_raises_store_error() -> None:
+    """Test that open_connection raises StoreError for missing DB."""
+    with pytest.raises(StoreError):
+        open_connection("/nonexistent/path/db.sqlite")
+
+
+def test_store_error_wraps_sqlite3() -> None:
+    """Test that sqlite3 errors are wrapped in StoreError."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
+        db_path = f.name
+
+    conn = create_tables(db_path)
+    conn.close()
+
+    try:
+        with pytest.raises(StoreError):
+            search(conn, "test", 5)
+    finally:
+        import os
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_sanitise_query_wraps_terms() -> None:
+    """Test that sanitise_query wraps terms in quotes."""
+    assert sanitise_query("hello world") == '"hello" "world"'
+
+
+def test_sanitise_query_escapes_quotes() -> None:
+    """Test that sanitise_query escapes internal quotes."""
+    assert sanitise_query('say "hi"') == '"say" """hi"""'
+
+
+def test_sanitise_query_empty() -> None:
+    """Test that sanitise_query handles empty string."""
+    assert sanitise_query("") == ""
