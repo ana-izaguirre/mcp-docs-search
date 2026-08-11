@@ -1,0 +1,64 @@
+# IMPORTANT: these questions are placeholders for bootstrapping the harness.
+# They were written by reading the corpus, so they overstate recall. Rewrite
+# them by hand — read only the questions, answer them from memory, then check
+# which file actually contains the answer. Replace expected_source accordingly.
+
+[[question]]
+query = "how do I configure retries"
+expected_source = "configuration.md"
+
+[[question]]
+query = "what ports does the service use"
+expected_source = "deployment.md"
+
+[[question]]
+query = "how are tokens validated"
+expected_source = "authentication.md"
+
+[[question]]
+query = "request keeps timing out"
+expected_source = "troubleshooting.md"
+
+[[question]]
+query = "enable debug logging"
+expected_source = "logging.md"
+
+[[question]]
+query = "export metrics to prometheus"
+expected_source = "metrics.md"
+
+[[question]]
+query = "what does a 401 error mean"
+expected_source = "api_reference.md"
+
+[[question]]
+query = "delete a project"
+expected_source = "data_model.md"
+
+[[question]]
+query = "how do migrations work"
+expected_source = "migrations.md"
+
+[[question]]
+query = "rotate client credentials"
+expected_source = "security.md"
+
+[[question]]
+query = "paginate list results"
+expected_source = "api_reference.md"
+
+[[question]]
+query = "connection refused to dependency"
+expected_source = "troubleshooting.md"
+
+[[question]]
+query = "what log levels are available"
+expected_source = "logging.md"
+
+[[question]]
+query = "schema version mismatch"
+expected_source = "migrations.md"
+
+[[question]]
+query = "TLS termination"
+expected_source = "security.md"

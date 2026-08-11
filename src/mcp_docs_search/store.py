@@ -14,6 +14,7 @@ __all__ = [
     "Connection",
     "create_tables",
     "open_connection",
+    "insert_document",
     "insert_chunk",
     "search",
     "sanitise_query",
@@ -106,6 +107,36 @@ def open_connection(db_path: str) -> Connection:
             f"Database not found: {db_path}. "
             f"Run `mcp-docs-search index <folder>` first."
         ) from exc
+
+
+def insert_document(conn: Connection, path: str, indexed_at: str) -> None:
+    """Record an indexed document.
+
+    Args:
+        conn: An open database connection.
+        path: Document path relative to the indexed root, forward slashes.
+        indexed_at: Timestamp of when the document was indexed.
+
+    Raises:
+        ValueError: If path or indexed_at is empty.
+        StoreError: If the document cannot be recorded.
+    """
+    if not path or not path.strip():
+        raise ValueError("Document path cannot be empty")
+
+    if not indexed_at or not indexed_at.strip():
+        raise ValueError("indexed_at cannot be empty")
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO documents (path, indexed_at)
+            VALUES (?, ?)
+            """,
+            (path, indexed_at),
+        )
+    except sqlite3.Error as exc:
+        raise StoreError(f"Failed to record document {path!r}") from exc
 
 
 def insert_chunk(

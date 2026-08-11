@@ -3,7 +3,7 @@
   "mcp": {
     "docs": {
       "type": "local",
-      "command": ["uv", "run", "python", "-m", "mcp_docs_search.server"],
+      "command": ["uv", "run", "mcp-docs-search-server", "--db", "./docs.db"],
       "enabled": true
     }
   }
