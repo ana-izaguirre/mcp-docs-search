@@ -7,11 +7,15 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +28,12 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Type check
-        run: uv run mypy src/
+        run: uv run mypy --strict src/ tests/
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Smoke test published commands
+        run: |
+          uv run mcp-docs-search ./docs --db ./ci.db --rebuild
+          uv run mcp-docs-search-server --help
