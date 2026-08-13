@@ -194,39 +194,15 @@ def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
     if not 1 <= limit <= 20:
         raise ValueError(f"Limit must be between 1 and 20, got {limit}")
 
-    try:
-        cursor = conn.execute(
-            """
-            SELECT chunk_id, document_path, heading_path, content
-            FROM chunks
-            WHERE chunks MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, limit),
-        )
-    except sqlite3.Error as exc:
-        raise StoreError(f"Search query failed: {query!r}") from exc
-    return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+    # Try the implicit AND (space-separated terms) first.
+    # If no chunk contains all terms, fall back to the explicit OR
+    # (quoted terms joined by OR) so that any matching term is still returned.
+    and_results = _search_and(conn, query, limit)
+    if and_results:
+        return and_results
 
-
-def sanitise_query(query: str) -> str:
-    """Sanitise a user query for safe FTS5 matching.
-
-    Wraps each term in double quotes and escapes internal quotes so that
-    special FTS5 characters (wildcards, parentheses, operators) are
-    treated as literal text. This prevents ``sqlite3.OperationalError``
-    on malformed FTS5 syntax.
-
-    Args:
-        query: Raw user query string.
-
-    Returns:
-        A sanitised query safe to pass to ``FTS5 MATCH``.
-    """
-    terms = query.split()
-    escaped = ['"{}"'.format(term.replace('"', '""')) for term in terms]
-    return " ".join(escaped)
+    or_results = _search_or(conn, query, limit)
+    return or_results
 
 
 def search_with_score(
@@ -255,6 +231,81 @@ def search_with_score(
     if not 1 <= limit <= 20:
         raise ValueError(f"Limit must be between 1 and 20, got {limit}")
 
+    and_results = _search_and_with_score(conn, query, limit)
+    if and_results:
+        return and_results
+
+    or_results = _search_or_with_score(conn, query, limit)
+    return or_results
+
+
+def _search_and(conn: Connection, query: str, limit: int) -> list[SearchResult]:
+    """Search chunks with implicit AND (all terms in the same chunk)."""
+    try:
+        cursor = conn.execute(
+            """
+            SELECT chunk_id, document_path, heading_path, content
+            FROM chunks
+            WHERE chunks MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (query, limit),
+        )
+    except sqlite3.Error as exc:
+        raise StoreError(f"Search query failed: {query!r}") from exc
+    return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+
+
+def _search_or(conn: Connection, query: str, limit: int) -> list[SearchResult]:
+    """Search chunks with explicit OR (any term in the chunk).
+
+    Converts the implicit AND query (space-separated terms) into an
+    explicit OR query (terms joined by ``OR``).  If the incoming *query*
+    has already been passed through :func:`sanitise_query`, each term is
+    already quoted and we simply swap the separator from whitespace to
+    ``" OR "``.
+    """
+    or_query = " OR ".join(query.split())
+    try:
+        cursor = conn.execute(
+            """
+            SELECT chunk_id, document_path, heading_path, content
+            FROM chunks
+            WHERE chunks MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (or_query, limit),
+        )
+    except sqlite3.Error as exc:
+        raise StoreError(f"Search query failed: {or_query!r}") from exc
+    return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+
+
+def sanitise_query(query: str) -> str:
+    """Sanitise a user query for safe FTS5 matching.
+
+    Wraps each term in double quotes and escapes internal quotes so that
+    special FTS5 characters (wildcards, parentheses, operators) are
+    treated as literal text. This prevents ``sqlite3.OperationalError``
+    on malformed FTS5 syntax.
+
+    Args:
+        query: Raw user query string.
+
+    Returns:
+        A sanitised query safe to pass to ``FTS5 MATCH``.
+    """
+    terms = query.split()
+    escaped = ['"' + t.replace('"', '""') + '"' for t in terms]
+    return " ".join(escaped)
+
+
+def _search_and_with_score(
+    conn: Connection, query: str, limit: int
+) -> list[ScoredResult]:
+    """Search chunks with implicit AND and BM25 score."""
     try:
         cursor = conn.execute(
             """
@@ -269,6 +320,31 @@ def search_with_score(
         )
     except sqlite3.Error as exc:
         raise StoreError(f"Search query failed: {query!r}") from exc
+    return [
+        ScoredResult(row[0], row[1], row[2], row[3], row[4])
+        for row in cursor.fetchall()
+    ]
+
+
+def _search_or_with_score(
+    conn: Connection, query: str, limit: int
+) -> list[ScoredResult]:
+    """Search chunks with explicit OR and BM25 score."""
+    or_query = " OR ".join(query.split())
+    try:
+        cursor = conn.execute(
+            """
+            SELECT chunk_id, document_path, heading_path, content,
+                   bm25(chunks) AS score
+            FROM chunks
+            WHERE chunks MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (or_query, limit),
+        )
+    except sqlite3.Error as exc:
+        raise StoreError(f"Search query failed: {or_query!r}") from exc
     return [
         ScoredResult(row[0], row[1], row[2], row[3], row[4])
         for row in cursor.fetchall()

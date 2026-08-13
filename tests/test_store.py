@@ -1,5 +1,4 @@
-import sqlite3
-import tempfile
+from pathlib import Path
 import pytest
 from mcp_docs_search.store import (
     create_tables,
@@ -14,60 +13,42 @@ from mcp_docs_search.store import (
     StoreError,
 )
 
-def test_create_tables_creates_database() -> None:
+def test_create_tables_creates_database(tmp_path: Path) -> None:
     """Test that create_tables creates the documents and chunks tables."""
-    # Use a temp file that doesn't exist yet
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
+
     conn = create_tables(db_path)
-    
     try:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'")
         assert cursor.fetchone() is not None
-        
+
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'")
         assert cursor.fetchone() is not None
-        
     finally:
         conn.close()
-        # Clean up
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_create_tables_fails_on_existing_file() -> None:
+def test_create_tables_fails_on_existing_file(tmp_path: Path) -> None:
     """Test that create_tables fails when database file already exists."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
-        db_path = f.name
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.close()
-        
-        with pytest.raises(StoreError) as exc_info:
-            create_tables(db_path)
+    db_path = str(tmp_path / "existing.db")
+    (tmp_path / "existing.db").touch()
 
-        assert "already exists" in str(exc_info.value).lower()
-    finally:
-        import os
-        os.unlink(db_path)
+    with pytest.raises(StoreError) as exc_info:
+        create_tables(db_path)
+
+    assert "already exists" in str(exc_info.value).lower()
 
 
-def test_insert_chunk() -> None:
+def test_insert_chunk(tmp_path: Path) -> None:
     """Test that insert_chunk properly inserts a chunk."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-    
     try:
         insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content of chunk 1")
-        
+
         cursor = conn.execute("SELECT chunk_id, document_path, heading_path, content FROM chunks WHERE chunk_id = 'chunk1'")
         chunk = cursor.fetchone()
-        
+
         assert chunk is not None
         assert chunk[0] == "chunk1"
         assert chunk[1] == "doc1.md"
@@ -75,59 +56,40 @@ def test_insert_chunk() -> None:
         assert chunk[3] == "Content of chunk 1"
     finally:
         conn.close()
-        # Clean up
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_insert_chunk_rejects_empty_content() -> None:
+def test_insert_chunk_rejects_empty_content(tmp_path: Path) -> None:
     """Test that insert_chunk rejects empty content."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-    
     try:
         with pytest.raises(ValueError) as exc_info:
             insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "")
-        
+
         assert "empty" in str(exc_info.value).lower()
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_insert_chunk_rejects_too_long_content() -> None:
+def test_insert_chunk_rejects_too_long_content(tmp_path: Path) -> None:
     """Test that insert_chunk rejects content that's too long."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-    
     try:
         long_content = "x" * 50001
-        
+
         with pytest.raises(ValueError) as exc_info:
             insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", long_content)
-        
+
         assert "too long" in str(exc_info.value).lower()
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_insert_document_records_path_and_timestamp() -> None:
+def test_insert_document_records_path_and_timestamp(tmp_path: Path) -> None:
     """Test that insert_document records a document row."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         insert_document(conn, "doc.md", "2025-01-15T10:30:00+00:00")
         conn.commit()
@@ -139,78 +101,54 @@ def test_insert_document_records_path_and_timestamp() -> None:
         assert row[1] == "2025-01-15T10:30:00+00:00"
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_insert_document_rejects_empty_path() -> None:
+def test_insert_document_rejects_empty_path(tmp_path: Path) -> None:
     """Test that insert_document rejects an empty path."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         with pytest.raises(ValueError) as exc_info:
             insert_document(conn, "", "2025-01-15T10:30:00+00:00")
         assert "path" in str(exc_info.value).lower()
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_search_with_valid_query() -> None:
+def test_search_with_valid_query(tmp_path: Path) -> None:
     """Test that search returns results for a valid query."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-    
     try:
         insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content about database and search")
         insert_chunk(conn, "chunk2", "doc2.md", "doc2.md > Section 2", "Another document about caching")
-        
+
         results = search(conn, "database", 5)
-        
+
         assert len(results) == 1
         assert results[0][0] == "chunk1"
         assert results[0][3] == "Content about database and search"
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_search_empty_query() -> None:
+def test_search_empty_query(tmp_path: Path) -> None:
     """Test that search rejects empty query."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-    
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-    
     try:
         with pytest.raises(ValueError) as exc_info:
             search(conn, "", 5)
-        
+
         assert "empty" in str(exc_info.value).lower()
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_search_invalid_limit() -> None:
+def test_search_invalid_limit(tmp_path: Path) -> None:
     """Test that search validates limit parameter."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         with pytest.raises(ValueError) as exc_info:
             search(conn, "test", 0)
@@ -223,18 +161,12 @@ def test_search_invalid_limit() -> None:
         assert "between 1 and 20" in str(exc_info.value)
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_search_with_score_returns_scores() -> None:
+def test_search_with_score_returns_scores(tmp_path: Path) -> None:
     """Test that search_with_score includes BM25 score."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         insert_chunk(conn, "c1", "doc.md", "doc.md > S", "content about testing")
         results = search_with_score(conn, "testing", 5)
@@ -243,18 +175,12 @@ def test_search_with_score_returns_scores() -> None:
         assert isinstance(results[0].score, float)
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_list_documents_returns_all_with_counts() -> None:
+def test_list_documents_returns_all_with_counts(tmp_path: Path) -> None:
     """Test that list_documents returns every document with chunk counts."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         conn.execute(
             "INSERT INTO documents (path, indexed_at) VALUES ('a.md', '2025-01-01')"
@@ -274,18 +200,12 @@ def test_list_documents_returns_all_with_counts() -> None:
         assert by_path["b.md"].chunk_count == 0
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_get_chunks_ordered_by_chunk_id() -> None:
+def test_get_chunks_ordered_by_chunk_id(tmp_path: Path) -> None:
     """Test that get_chunks returns content in chunk_id order."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         insert_chunk(conn, "0_1", "doc.md", "doc.md > Second", "second chunk")
         insert_chunk(conn, "0_0", "doc.md", "doc.md > First", "first chunk")
@@ -295,26 +215,17 @@ def test_get_chunks_ordered_by_chunk_id() -> None:
         assert chunks == ["first chunk", "second chunk"]
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
-def test_get_chunks_empty_for_unknown_path() -> None:
+def test_get_chunks_empty_for_unknown_path(tmp_path: Path) -> None:
     """Test that get_chunks returns empty list for unknown document."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
-
     try:
         chunks = get_chunks(conn, "nonexistent.md")
         assert chunks == []
     finally:
         conn.close()
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
 def test_open_connection_missing_raises_store_error() -> None:
@@ -323,21 +234,17 @@ def test_open_connection_missing_raises_store_error() -> None:
         open_connection("/nonexistent/path/db.sqlite")
 
 
-def test_store_error_wraps_sqlite3() -> None:
+def test_store_error_wraps_sqlite3(tmp_path: Path) -> None:
     """Test that sqlite3 errors are wrapped in StoreError."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=True) as f:
-        db_path = f.name
-
+    db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     conn.close()
-
     try:
         with pytest.raises(StoreError):
             search(conn, "test", 5)
     finally:
-        import os
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+        if (tmp_path / "test.db").exists():
+            (tmp_path / "test.db").unlink()
 
 
 def test_sanitise_query_wraps_terms() -> None:
@@ -353,3 +260,79 @@ def test_sanitise_query_escapes_quotes() -> None:
 def test_sanitise_query_empty() -> None:
     """Test that sanitise_query handles empty string."""
     assert sanitise_query("") == ""
+
+
+def test_search_falls_back_to_or(tmp_path: Path) -> None:
+    """Test that search falls back to OR when AND finds no matches."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        conn.commit()
+
+        # No chunk contains both "beta" AND "gamma" — AND fails.
+        results = search(conn, "beta gamma", 5)
+
+        # OR fallback should find both chunks.
+        assert len(results) == 2
+        chunk_ids = {r[0] for r in results}
+        assert chunk_ids == {"0_0", "0_1"}
+    finally:
+        conn.close()
+
+
+def test_search_returns_and_results_no_fallback(tmp_path: Path) -> None:
+    """Test that search returns AND results without OR fallback."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        conn.commit()
+
+        # Both terms appear together in chunk 0_0.
+        results = search(conn, "beta alpha", 5)
+
+        assert len(results) == 1
+        assert results[0][0] == "0_0"
+    finally:
+        conn.close()
+
+
+def test_search_with_score_falls_back_to_or(tmp_path: Path) -> None:
+    """Test that search_with_score falls back to OR when AND finds nothing."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        conn.commit()
+
+        results = search_with_score(conn, "beta gamma", 5)
+
+        assert len(results) == 2
+        assert all(isinstance(r.score, float) for r in results)
+    finally:
+        conn.close()
+
+
+def test_search_or_results_not_merged(tmp_path: Path) -> None:
+    """Test that OR fallback returns only OR results, not a merge."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        # 0_0 has "beta" but not "gamma"
+        # 0_1 has "gamma" but not "beta"
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha beta")
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "gamma delta")
+        conn.commit()
+
+        results = search(conn, "beta gamma", 5)
+
+        # AND empty (no chunk has both), OR finds both chunks.
+        assert len(results) == 2
+        chunk_ids = {r[0] for r in results}
+        assert chunk_ids == {"0_0", "0_1"}
+    finally:
+        conn.close()
