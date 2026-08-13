@@ -98,14 +98,14 @@ def open_connection(db_path: str) -> Connection:
     if not Path(db_path).exists():
         raise StoreError(
             f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search index <folder>` first."
+            f"Run `mcp-docs-search <folder>` first."
         )
     try:
         return sqlite3.connect(db_path)
     except sqlite3.Error as exc:
         raise StoreError(
             f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search index <folder>` first."
+            f"Run `mcp-docs-search <folder>` first."
         ) from exc
 
 
