@@ -76,6 +76,7 @@ def create_tables(db_path: str) -> Connection:
             """
             CREATE VIRTUAL TABLE chunks USING fts5(
                 chunk_id UNINDEXED,
+                chunk_index UNINDEXED,
                 document_path UNINDEXED,
                 heading_path,
                 content,
@@ -145,11 +146,23 @@ def insert_chunk(
     document_path: str,
     heading_path: str,
     content: str,
+    chunk_index: int,
 ) -> None:
     """Insert a single chunk.
 
+    Args:
+        conn: An open database connection.
+        chunk_id: Identifier unique across the index.
+        document_path: Document path relative to the indexed root.
+        heading_path: Full heading path of the chunk.
+        content: Chunk body.
+        chunk_index: Position of the chunk within its document, counted
+            from 0. ``get_chunks`` orders by this, so it is what makes a
+            document reconstructable.
+
     Raises:
-        ValueError: If content is empty or exceeds MAX_CONTENT_LENGTH.
+        ValueError: If content is empty, exceeds MAX_CONTENT_LENGTH, or
+            chunk_index is negative.
         StoreError: If the chunk cannot be written to the index.
     """
     if not content or not content.strip():
@@ -160,13 +173,17 @@ def insert_chunk(
             f"Content too long: {len(content)} characters > {MAX_CONTENT_LENGTH}"
         )
 
+    if chunk_index < 0:
+        raise ValueError(f"chunk_index must be >= 0, got {chunk_index}")
+
     try:
         conn.execute(
             """
-            INSERT INTO chunks (chunk_id, document_path, heading_path, content)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO chunks
+                (chunk_id, chunk_index, document_path, heading_path, content)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (chunk_id, document_path, heading_path, content),
+            (chunk_id, chunk_index, document_path, heading_path, content),
         )
     except sqlite3.Error as exc:
         raise StoreError(f"Failed to insert chunk into {document_path}") from exc
@@ -390,7 +407,7 @@ def get_chunks(conn: Connection, path: str) -> list[str]:
         path: Document path as stored in the index.
 
     Returns:
-        A list of content strings, ordered by chunk_id.
+        A list of content strings, in document order.
 
     Raises:
         StoreError: If the chunks cannot be retrieved.
@@ -400,7 +417,7 @@ def get_chunks(conn: Connection, path: str) -> list[str]:
             """
             SELECT content FROM chunks
             WHERE document_path = ?
-            ORDER BY chunk_id
+            ORDER BY CAST(chunk_index AS INTEGER)
             """,
             (path,),
         )

@@ -87,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
 
             chunks = chunk_markdown(source)
 
+            stored_index = 0
             for chunk_idx, chunk in enumerate(chunks):
                 if not chunk.text.strip():
                     continue
@@ -96,9 +97,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 try:
                     insert_chunk(
-                        conn, chunk_id, rel_path, heading_path_str, chunk.text,
+                        conn,
+                        chunk_id,
+                        rel_path,
+                        heading_path_str,
+                        chunk.text,
+                        stored_index,
                     )
                     chunks_written += 1
+                    stored_index += 1
                 except ValueError as e:
                     print(
                         f"Warning: skipping chunk in {rel_path}: {e}",
@@ -121,3 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{files_skipped} skipped",
     )
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
