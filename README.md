@@ -9,6 +9,18 @@ An MCP server that gives AI coding agents keyword search over a folder of
 markdown documentation. Built on SQLite FTS5 — one runtime dependency, no
 vector database, no API keys, no infrastructure.
 
+## Stack
+
+| | |
+|---|---|
+| **Language** | Python 3.12 |
+| **Index** | SQLite FTS5, from the standard library's `sqlite3` |
+| **Protocol** | MCP, via the `mcp` package — the only runtime dependency |
+| **Tooling** | `uv`, `pytest`, `mypy --strict`, `ruff` |
+
+No vector database, no embedding API, no service to run. `uv sync` is the whole
+setup.
+
 ## The problem
 
 Your agent knows the language. It does not know your docs.
@@ -22,15 +34,9 @@ it — getting back the relevant passages with the file and heading they came fr
 
 ## Status
 
-Phase 1, in progress.
-
-- [x] SQLite FTS5 store — indexing, search, input validation
-- [x] Heading-based markdown chunking
-- [x] `index` CLI command
-- [x] MCP server with `search_docs`, `list_sources`, `get_document`
-- [x] Retrieval evaluation harness — numbers below
-- [x] Integration tests over the real MCP protocol
-- [ ] Demo GIF of a live session
+Phase 1 is complete except for the demo GIF. The task breakdown lives in
+[`docs/tasks.md`](./docs/tasks.md); open work is in
+[issues](https://github.com/ana-izaguirre/mcp-docs-search/issues).
 
 ## Quick start
 
@@ -64,9 +70,8 @@ claude mcp add docs -- uv run mcp-docs-search-server --db ./docs.db
 ### Check it works before wiring it into an editor
 
 The server speaks MCP over stdin/stdout, so running it in a terminal shows
-nothing useful — it waits for a client. `scripts/mcp_smoke.py` *is* that
-client: it spawns the server, completes the handshake and calls all three
-tools.
+nothing useful — it waits for a client. `scripts/mcp_smoke.py` *is* that client:
+it spawns the server, completes the handshake and calls all three tools.
 
 ```bash
 uv run python scripts/mcp_smoke.py --db ./docs.db --query "chunking"
@@ -74,16 +79,11 @@ uv run python scripts/mcp_smoke.py --db ./docs.db --query "chunking"
 
 ```
 tools advertised: search_docs, list_sources, get_document
-
---- search_docs('chunking') ---
-  decisions.md > Fenced code blocks and headings  (score -4.31)
-    **Context** - Fenced code blocks and headings  **Proposed** - treating any...
-
---- get_document('decisions.md') ---
-  6168 characters returned
+decisions.md > Fenced code blocks and headings   (score -4.31)
 ```
 
-If that prints results, any MCP client will get the same ones.
+If that prints results, any MCP client will get the same ones. A full session
+transcript is in [`docs/demo-transcript.md`](./docs/demo-transcript.md).
 
 ## Tools
 
@@ -98,59 +98,28 @@ frequently needs the surrounding context to answer well.
 
 ## How it works
 
-### Chunking follows headings, not a fixed window
-
-Each markdown section becomes one chunk, and every chunk carries its full
-heading path:
+Each markdown section becomes one chunk carrying its full heading path:
 
 ```
 guide.md > Installation > Configuration
 ```
 
-That path is what makes a result useful to an agent. It tells it *where* the
-match lives, not just *what* matched — which is the difference between this and
-running `grep`.
+That path is what separates this from `grep`. It tells the agent *where* a
+match lives, not only *what* matched, so the answer can cite a source. Sections
+over ~1500 characters split at paragraph boundaries and keep their heading;
+sections under ~100 characters merge forward, so a bare subheading never becomes
+a chunk of its own.
 
-Sections over ~1500 characters split at paragraph boundaries, keeping their
-heading. Sections under ~100 characters merge into the next one, so a bare
-subheading never becomes a chunk of its own.
+The index is a build artifact, not state — the markdown is the source of truth
+and the `.db` file is a regenerable projection of it. Build it in CI, ship it in
+the image, run any number of read-only instances against identical copies.
 
-Verified end to end against the FastAPI documentation: 155 files,
-1927 chunks, none skipped. The agent chained `search_docs` into
-`get_document` on its own — the behaviour `get_document` was added
-for.
+FTS5 gives real BM25 ranking with an inverted index, from the standard library,
+with nothing to operate. Phase 2 adds a vector table to the same file rather
+than replacing any of it.
 
-### Why SQLite FTS5 instead of a vector database
-
-FTS5 ships inside Python's standard library `sqlite3` module. It gives real
-BM25 ranking with an inverted index — not substring matching — and it costs
-nothing to run.
-
-That buys three things:
-
-**Zero infrastructure.** Clone, index, done. No Docker, no service to start, no
-API key. The barrier to trying this is a single command.
-
-**A measurable baseline.** Adding embeddings without knowing what plain keyword
-search already achieves means you can't tell whether they helped. The evaluation
-harness measures Phase 1 so Phase 2 has something to beat.
-
-**An additive migration path.** Phase 2 adds a vector table to the same database
-file. Nothing gets rewritten.
-
-### The index is a build artifact, not state
-
-The markdown files are the source of truth. The `.db` file is a projection of
-them, regenerable at any time.
-
-That changes how it's operated: no backups, no migrations, no corruption
-recovery. Build it in CI, ship it inside the container image, and run any number
-of read-only instances against identical copies.
-
-```yaml
-- run: uv run mcp-docs-search ./docs --db ./docs.db
-- run: docker build .
-```
+The full reasoning — chunking rules, the layering, and the trust boundary — is
+in [`docs/design.md`](./docs/design.md).
 
 ## Retrieval quality
 
@@ -211,6 +180,10 @@ ad-hoc prompting.
 - [`docs/tasks.md`](./docs/tasks.md) — the breakdown, with dependencies
 - [`docs/decisions.md`](./docs/decisions.md) — where the agent's proposal was
   overridden, and why
+- [`docs/design.md`](./docs/design.md) — the reasoning this README summarises,
+  including the trust boundary
 
 The decision log is the interesting file. It records the FTS5 ranking bug that
-passed every test while returning the worst results first, among others.
+passed every test while returning the worst results first, and the chunk
+ordering that scrambled every document past ten chunks while the suite stayed
+green — both found by running the thing, not by testing it harder.
