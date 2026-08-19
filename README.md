@@ -1,6 +1,7 @@
 # mcp-docs-search
 
 ![CI](https://github.com/ana-izaguirre/mcp-docs-search/actions/workflows/ci.yml/badge.svg)
+![Coverage](https://codecov.io/gh/ana-izaguirre/mcp-docs-search/branch/main/graph/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-1-brightgreen)
 
