@@ -3,7 +3,6 @@
 ![CI](https://github.com/ana-izaguirre/mcp-docs-search/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-1-brightgreen)
-![CodeQL](https://github.com/ana-izaguirre/mcp-docs-search/actions/workflows/github-code-scanning/codeql/badge.svg)
 
 An MCP server that gives AI coding agents keyword search over a folder of
 markdown documentation. Built on SQLite FTS5 — one runtime dependency, no
@@ -28,7 +27,9 @@ Phase 1, in progress.
 - [x] Heading-based markdown chunking
 - [x] `index` CLI command
 - [x] MCP server with `search_docs`, `list_sources`, `get_document`
-- [ ] Retrieval evaluation harness
+- [x] Retrieval evaluation harness — numbers below
+- [x] Integration tests over the real MCP protocol
+- [ ] Demo GIF of a live session
 
 ## Quick start
 
@@ -37,7 +38,9 @@ uv sync
 uv run mcp-docs-search ./docs --db ./docs.db
 ```
 
-Then register the server with your MCP client:
+Then register the server with your MCP client. The block below is
+[OpenCode](https://opencode.ai)'s format, and is already checked in as
+`opencode.json`:
 
 ```json
 {
@@ -50,6 +53,36 @@ Then register the server with your MCP client:
   }
 }
 ```
+
+For Claude Code, the same server registers with:
+
+```bash
+claude mcp add docs -- uv run mcp-docs-search-server --db ./docs.db
+```
+
+### Check it works before wiring it into an editor
+
+The server speaks MCP over stdin/stdout, so running it in a terminal shows
+nothing useful — it waits for a client. `scripts/mcp_smoke.py` *is* that
+client: it spawns the server, completes the handshake and calls all three
+tools.
+
+```bash
+uv run python scripts/mcp_smoke.py --db ./docs.db --query "chunking"
+```
+
+```
+tools advertised: search_docs, list_sources, get_document
+
+--- search_docs('chunking') ---
+  decisions.md > Fenced code blocks and headings  (score -4.31)
+    **Context** - Fenced code blocks and headings  **Proposed** - treating any...
+
+--- get_document('decisions.md') ---
+  6168 characters returned
+```
+
+If that prints results, any MCP client will get the same ones.
 
 ## Tools
 
@@ -125,9 +158,40 @@ runs a fixed set of questions against a known corpus and reports how often the
 expected source appears in the results.
 
 ```
-Pending — populated when the evaluation harness lands.
-recall@1: —    recall@3: —
+recall@1: 0.60   recall@3: 0.87   (15 queries, 10 documents, 40 chunks)
 ```
+
+Reproduce it with `uv run python evals/run_evals.py`; CI runs the same command
+on every push, so these numbers cannot drift without the build noticing.
+
+**Read them with one caveat.** The current question set was written while
+looking at the corpus, which biases the wording towards the text it is supposed
+to find — so 0.60 and 0.87 flatter the system rather than measuring it. The
+questions are being rewritten blind: answer from memory first, then check which
+file actually holds the answer. The honest number is expected to be lower, and
+will replace this one.
+
+The harness prints the queries it failed, which is the useful part:
+
+```
+"request keeps timing out"
+  expected troubleshooting.md, got data_model.md, configuration.md
+"what does a 401 error mean"
+  expected api_reference.md, got troubleshooting.md, authentication.md
+```
+
+Both failures are the same shape: the question describes a symptom, the corpus
+indexes a vocabulary. Keyword search has no way to connect "keeps timing out"
+to a page that says "deadline exceeded". That is the gap Phase 2 has to close,
+and now there is a number attached to it.
+
+## Demo
+
+Not recorded yet — this is the one item of Phase 1 still open.
+[`scripts/demo-checklist.md`](./scripts/demo-checklist.md) has the steps and
+`scripts/demo.tape` renders the GIF in one command. A text transcript of a real
+session is in [`docs/demo-transcript.md`](./docs/demo-transcript.md) in the
+meantime.
 
 ## Roadmap
 
