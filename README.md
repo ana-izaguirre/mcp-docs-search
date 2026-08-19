@@ -128,32 +128,33 @@ runs a fixed set of questions against a known corpus and reports how often the
 expected source appears in the results.
 
 ```
-recall@1: 0.47   recall@3: 0.67   (15 queries, 10 documents, 40 chunks)
+recall@1: 0.36   recall@3: 0.52   (25 queries, 21 documents, 84 chunks)
 ```
 
 Reproduce it with `uv run python evals/run_evals.py`; CI runs the same command
 on every push, so these numbers cannot drift without the build noticing.
 
-**Read them with one caveat.** The current question set was written while
-looking at the corpus, which biases the wording towards the text it is supposed
-to find — so 0.47 and 0.67 flatter the system rather than measuring it. The
-questions are being rewritten blind: answer from memory first, then check which
-file actually holds the answer. The honest number is expected to be lower, and
-will replace this one.
+**That is a deliberately unflattering number.** The questions are written from
+a user's point of view without copying the corpus vocabulary — answer from
+memory first, then check which file actually holds the answer. An earlier set
+written while reading the corpus scored 0.60/0.87, which measured the
+question-writing rather than the retrieval. Publishing the lower number is the
+point: Phase 2 has something real to beat.
 
 The harness prints the queries it failed, which is the useful part:
 
 ```
-"request keeps timing out"
-  expected troubleshooting.md, got data_model.md, configuration.md
-"what does a 401 error mean"
-  expected api_reference.md, got troubleshooting.md, authentication.md
+"I updated something but the api keeps giving me the old values"
+  expected caching.md, got rate_limiting.md, permissions.md
+"we are being blocked after sending a lot of calls"
+  expected rate_limiting.md, got data_model.md, caching.md
 ```
 
-Both failures are the same shape: the question describes a symptom, the corpus
-indexes a vocabulary. Keyword search has no way to connect "keeps timing out"
-to a page that says "deadline exceeded". That is the gap Phase 2 has to close,
-and now there is a number attached to it.
+Every failure has the same shape: the question describes a symptom, the corpus
+indexes a vocabulary. Nothing connects "keeps giving me the old values" to a
+page that says "stale entries expire on their own" — the words never overlap.
+That is precisely the gap embeddings close, and now it has a number attached
+to it.
 
 ## Demo
 

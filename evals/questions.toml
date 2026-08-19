@@ -60,3 +60,42 @@ expected_source = "troubleshooting.md"
 [[question]]
 query = "what is the default response format for this api"
 expected_source = "api_reference.md"
+[[question]]
+query = "I updated something but the api keeps giving me the old values"
+expected_source = "caching.md"
+
+[[question]]
+query = "we are being blocked after sending a lot of calls"
+expected_source = "rate_limiting.md"
+
+[[question]]
+query = "how do I know the event really came from you and not someone else"
+expected_source = "webhooks.md"
+
+[[question]]
+query = "we deleted a table by accident, can we go back to yesterday"
+expected_source = "backups.md"
+
+[[question]]
+query = "can I stop someone on my team from removing things"
+expected_source = "permissions.md"
+
+[[question]]
+query = "we added more machines and now the database refuses connections"
+expected_source = "scaling.md"
+
+[[question]]
+query = "is there a package I can install instead of writing http calls"
+expected_source = "sdk_clients.md"
+
+[[question]]
+query = "how do I try things without touching real customer data"
+expected_source = "testing.md"
+
+[[question]]
+query = "you removed a field and my integration stopped working"
+expected_source = "versioning.md"
+
+[[question]]
+query = "what actually runs when I deploy this, how many processes"
+expected_source = "architecture.md"

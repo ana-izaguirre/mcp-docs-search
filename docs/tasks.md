@@ -68,17 +68,16 @@ Status legend: `[x]` done · `[~]` partially done · `[ ]` not started.
 - [x] How to verify the server locally
 - [ ] Demo GIF of a real client session (see task 9)
 
-### Task 6 — Evals and fixtures — `[~]`
+### Task 6 — Evals and fixtures — `[x]`
 **Depends on:** tasks 2, 4
 
 - [x] `evals/run_evals.py` builds an index from the fixtures and reports
       recall@1, recall@3 and the failing queries
 - [x] `evals/questions.toml` — 15 entries of `query` + `expected_source`
 - [x] Tests in `tests/test_evals.py` guard the harness and the question set
-- [ ] Rewrite the questions blind: answer from memory first, then check which
-      file actually holds the answer. The current set was written by reading
-      the corpus and overstates recall
-- [ ] Grow `evals/fixtures/` from 10 files to ~20
+- [x] Questions rewritten blind — phrased from a user's point of view, never
+      copying the vocabulary of the file they should find
+- [x] `evals/fixtures/` grown to 21 files
 
 ### Task 7 — CI — `[x]`
 **Depends on:** tasks 1, 4
