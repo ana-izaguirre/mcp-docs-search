@@ -1,6 +1,8 @@
 """Tests for MCP server tool handlers."""
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -13,13 +15,13 @@ from mcp_docs_search.server import (
     create_server,
 )
 from mcp_docs_search.store import (
+    Connection,
     create_tables,
     insert_chunk,
     open_connection,
     sanitise_query,
 )
 
-import mcp_docs_search.server as server_mod
 
 
 @pytest.fixture
@@ -48,13 +50,23 @@ def db_path(tmp_path: Path) -> Path:
     conn.commit()
     conn.close()
 
-    server_mod._conn = open_connection(str(path))
     return path
 
 
+@pytest.fixture
+def conn(db_path: Path) -> Iterator[Connection]:
+    """An open connection to the test index, closed afterwards."""
+    connection = open_connection(str(db_path))
+    try:
+        yield connection
+    finally:
+        with suppress(Exception):
+            connection.close()
+
+
 @pytest.mark.anyio
-async def test_search_docs_returns_shape(db_path: Path) -> None:
-    results = await _search_docs("retries", 5)
+async def test_search_docs_returns_shape(conn: Connection) -> None:
+    results = await _search_docs(conn, "retries", 5)
     assert isinstance(results, list)
     assert len(results) >= 1
     item = results[0]
@@ -67,15 +79,15 @@ async def test_search_docs_returns_shape(db_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_search_docs_ranking(db_path: Path) -> None:
-    results = await _search_docs("retries", 5)
+async def test_search_docs_ranking(conn: Connection) -> None:
+    results = await _search_docs(conn, "retries", 5)
     assert results[0]["document_path"] == "guide.md"
     assert "retries" in results[0]["content"]
 
 
 @pytest.mark.anyio
-async def test_list_sources_returns_shape(db_path: Path) -> None:
-    results = await _list_sources()
+async def test_list_sources_returns_shape(conn: Connection) -> None:
+    results = await _list_sources(conn)
     assert isinstance(results, list)
     assert len(results) == 2
     item = results[0]
@@ -86,63 +98,63 @@ async def test_list_sources_returns_shape(db_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_get_document_returns_full_content(db_path: Path) -> None:
-    result = await _get_document("guide.md")
+async def test_get_document_returns_full_content(conn: Connection) -> None:
+    result = await _get_document(conn, "guide.md")
     assert isinstance(result, str)
     assert "installation" in result
     assert "Configure" in result
 
 
 @pytest.mark.anyio
-async def test_get_document_missing_returns_actionable(db_path: Path) -> None:
-    result = await _get_document("nonexistent.md")
+async def test_get_document_missing_returns_actionable(conn: Connection) -> None:
+    result = await _get_document(conn, "nonexistent.md")
     assert isinstance(result, str)
     assert "not found" in result.lower()
     assert "list_sources" in result
 
 
 @pytest.mark.anyio
-async def test_limit_clamped_below_min(db_path: Path) -> None:
-    results = await _search_docs("the", 0)
+async def test_limit_clamped_below_min(conn: Connection) -> None:
+    results = await _search_docs(conn, "the", 0)
     assert isinstance(results, list)
     assert len(results) <= 1
 
 
 @pytest.mark.anyio
-async def test_limit_clamped_above_max(db_path: Path) -> None:
-    results = await _search_docs("the", 100)
+async def test_limit_clamped_above_max(conn: Connection) -> None:
+    results = await _search_docs(conn, "the", 100)
     assert isinstance(results, list)
     assert len(results) <= 20
 
 
 @pytest.mark.anyio
-async def test_empty_query_returns_empty_list(db_path: Path) -> None:
-    results = await _search_docs("", 5)
+async def test_empty_query_returns_empty_list(conn: Connection) -> None:
+    results = await _search_docs(conn, "", 5)
     assert results == []
 
 
 @pytest.mark.anyio
-async def test_whitespace_query_returns_empty_list(db_path: Path) -> None:
-    results = await _search_docs("   ", 5)
+async def test_whitespace_query_returns_empty_list(conn: Connection) -> None:
+    results = await _search_docs(conn, "   ", 5)
     assert results == []
 
 
 @pytest.mark.anyio
-async def test_fts5_special_chars_do_not_raise(db_path: Path) -> None:
-    results = await _search_docs("port*", 5)
+async def test_fts5_special_chars_do_not_raise(conn: Connection) -> None:
+    results = await _search_docs(conn, "port*", 5)
     assert isinstance(results, list)
 
-    results = await _search_docs('http "and"', 5)
+    results = await _search_docs(conn, 'http "and"', 5)
     assert isinstance(results, list)
 
-    results = await _search_docs("NEAR(port)", 5)
+    results = await _search_docs(conn, "NEAR(port)", 5)
     assert isinstance(results, list)
 
 
-def test_nothing_writes_to_stdout(db_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    asyncio.run(_search_docs("retries", 5))
-    asyncio.run(_list_sources())
-    asyncio.run(_get_document("guide.md"))
+def test_nothing_writes_to_stdout(conn: Connection, capsys: pytest.CaptureFixture[str]) -> None:
+    asyncio.run(_search_docs(conn, "retries", 5))
+    asyncio.run(_list_sources(conn))
+    asyncio.run(_get_document(conn, "guide.md"))
     captured = capsys.readouterr()
     assert captured.out == ""
 
@@ -253,17 +265,17 @@ def test_clamp_limit_boundaries(given: int | None, expected: int) -> None:
 # --- get_document edge cases --------------------------------------------------
 
 @pytest.mark.anyio
-async def test_get_document_empty_path_is_actionable(db_path: Path) -> None:
-    result = await _get_document("")
+async def test_get_document_empty_path_is_actionable(conn: Connection) -> None:
+    result = await _get_document(conn, "")
     assert "required" in result.lower()
     assert "list_sources" in result
 
 
 @pytest.mark.anyio
 async def test_get_document_whitespace_path_is_actionable(
-    db_path: Path,
+    conn: Connection,
 ) -> None:
-    result = await _get_document("   ")
+    result = await _get_document(conn, "   ")
     assert "list_sources" in result
 
 
@@ -282,55 +294,51 @@ async def test_get_document_returns_chunks_in_document_order(
     conn.commit()
     conn.close()
 
-    server_mod._conn = open_connection(str(path))
-    result = await _get_document("long.md")
+    reopened = open_connection(str(path))
+    try:
+        result = await _get_document(reopened, "long.md")
+    finally:
+        reopened.close()
 
     assert result == "\n\n".join(f"body {i}" for i in range(12))
 
 
 # --- store failures degrade into actionable answers, never tracebacks ---------
 
-def _close_connection() -> None:
+def _close(connection: Connection) -> None:
     """Drop the live connection so store calls raise StoreError."""
-    assert server_mod._conn is not None
-    server_mod._conn.close()
+    connection.close()
 
 
 @pytest.mark.anyio
-async def test_search_docs_survives_a_store_failure(db_path: Path) -> None:
-    _close_connection()
-    assert await _search_docs("retries", 5) == []
+async def test_search_docs_survives_a_store_failure(conn: Connection) -> None:
+    _close(conn)
+    assert await _search_docs(conn, "retries", 5) == []
 
 
 @pytest.mark.anyio
-async def test_list_sources_survives_a_store_failure(db_path: Path) -> None:
-    _close_connection()
-    assert await _list_sources() == []
+async def test_list_sources_survives_a_store_failure(conn: Connection) -> None:
+    _close(conn)
+    assert await _list_sources(conn) == []
 
 
 @pytest.mark.anyio
-async def test_get_document_survives_a_store_failure(db_path: Path) -> None:
-    _close_connection()
-    result = await _get_document("guide.md")
+async def test_get_document_survives_a_store_failure(conn: Connection) -> None:
+    _close(conn)
+    result = await _get_document(conn, "guide.md")
     assert "unavailable" in result.lower()
     assert "list_sources" in result
-
-
-def test_uninitialised_connection_raises_runtime_error() -> None:
-    server_mod._conn = None
-    with pytest.raises(RuntimeError, match="not initialized"):
-        server_mod._get_conn()
 
 
 # --- stdout stays clean on failure paths too ----------------------------------
 
 def test_nothing_writes_to_stdout_on_failure_paths(
-    db_path: Path, capsys: pytest.CaptureFixture[str]
+    conn: Connection, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """stdout is the MCP protocol channel; error handling must not touch it."""
-    _close_connection()
-    asyncio.run(_search_docs("retries", 5))
-    asyncio.run(_list_sources())
-    asyncio.run(_get_document("guide.md"))
-    asyncio.run(_get_document("missing.md"))
+    _close(conn)
+    asyncio.run(_search_docs(conn, "retries", 5))
+    asyncio.run(_list_sources(conn))
+    asyncio.run(_get_document(conn, "guide.md"))
+    asyncio.run(_get_document(conn, "missing.md"))
     assert capsys.readouterr().out == ""
