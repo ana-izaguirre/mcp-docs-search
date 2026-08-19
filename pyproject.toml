@@ -1,15 +1,30 @@
 [project]
 name = "mcp-docs-search"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP server giving AI coding agents keyword search over a folder of markdown documentation, backed by SQLite FTS5"
 readme = "README.md"
 authors = [
     { name = "Ana Izaguirre", email = "ana.cimatamoros@gmail.com" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["mcp", "search", "documentation", "sqlite", "fts5"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ana-izaguirre/mcp-docs-search"
+Repository = "https://github.com/ana-izaguirre/mcp-docs-search"
+Issues = "https://github.com/ana-izaguirre/mcp-docs-search/issues"
 
 [project.scripts]
 mcp-docs-search = "mcp_docs_search.cli:main"
@@ -21,6 +36,17 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "anyio>=4.0.0",
     "mypy>=2.3.0",
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The eval harness lives outside the package; tests import it directly.
+pythonpath = ["."]
+addopts = "--strict-markers --strict-config"
+
+[tool.mypy]
+strict = true
+

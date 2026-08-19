@@ -40,3 +40,23 @@ expected_source = "configuration.md"
 [[question]]
 query = "can I delete a user and everything associated with it"
 expected_source = "data_model.md"
+
+[[question]]
+query = "where do I set the timeout and retry policy"
+expected_source = "configuration.md"
+
+[[question]]
+query = "how do I deploy the service to production"
+expected_source = "deployment.md"
+
+[[question]]
+query = "what happens when a migration fails"
+expected_source = "migrations.md"
+
+[[question]]
+query = "how do I troubleshoot authentication errors"
+expected_source = "troubleshooting.md"
+
+[[question]]
+query = "what is the default response format for this api"
+expected_source = "api_reference.md"

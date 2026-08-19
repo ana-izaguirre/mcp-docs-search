@@ -84,6 +84,8 @@ async def _search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchRes
     if not query or not query.strip():
         return []
     safe_query = sanitise_query(query)
+    if not safe_query:
+        return []
     try:
         results = search_with_score(_get_conn(), safe_query, clamped)
         return [_scored_to_dict(r) for r in results]

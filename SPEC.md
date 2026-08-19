@@ -116,10 +116,16 @@ tests/
   test_store.py
   test_cli.py
   test_server.py
+  test_evals.py
+  test_integration.py   # published commands + real MCP protocol
 evals/
-  questions.yaml
+  questions.toml   # TOML, not YAML: stdlib tomllib, no dependency
   run_evals.py
   fixtures/        # ~20 sample md files
+scripts/
+  mcp_smoke.py         # stdio MCP client, also used as a CI check
+  demo-checklist.md
+  demo.tape
 AGENTS.md
 README.md
 LICENSE
@@ -138,13 +144,18 @@ belong to the CLI layer, which keeps parsing testable with plain strings.
 
 This is not optional. It is the one thing an ordinary RAG demo does not have.
 
-**`evals/questions.yaml`** — 15–20 entries:
+**`evals/questions.toml`** — 15–20 entries (TOML rather than the YAML
+originally specified, so the harness needs no dependency beyond stdlib
+`tomllib`):
 
-```yaml
-- query: "how do I configure retries"
-  expected_source: "configuration.md"
-- query: "what ports does the service use"
-  expected_source: "deployment.md"
+```toml
+[[question]]
+query = "how do I configure retries"
+expected_source = "configuration.md"
+
+[[question]]
+query = "what ports does the service use"
+expected_source = "deployment.md"
 ```
 
 **`evals/run_evals.py`** — runs each query and reports:
@@ -186,11 +197,17 @@ pytest's `tmp_path` fixture, never `tempfile`.
 - Reindexing with `--rebuild` leaves no orphan chunks
 - Nothing in the server writes to stdout
 
-**Known gap:** tests call entry-point functions directly rather than spawning a
-subprocess, for speed and stability. That leaves the wiring uncovered —
-`project.scripts`, argument parsing and default paths. Three defects reached
-manual testing through this gap. A CI smoke test running the published commands
-is the mitigation.
+**Closed gap:** the unit tests call entry-point functions directly, for speed
+and stability, which left the wiring uncovered — `project.scripts`, argument
+parsing and default paths. Three defects reached manual testing through it.
+`tests/test_integration.py` now runs the published console scripts as
+subprocesses and drives the server over a real stdio MCP session, and CI runs
+both that and a live-server smoke check.
+
+**Remaining rule:** at least one test per feature must cross the whole system.
+Two defects — the unpopulated `documents` table and lexicographic chunk
+ordering — lived in the seam between two correctly implemented modules and
+survived a green suite.
 
 ---
 
@@ -243,8 +260,10 @@ not have it.
 
 - [x] The index command works over a real markdown folder
 - [x] The three tools respond from a real MCP client
-- [ ] `mypy --strict` and `pytest` pass in CI (GitHub Actions)
-- [ ] Evals running, with the numbers in the README
+- [x] `mypy --strict` and `pytest` pass in CI (GitHub Actions)
+- [x] Evals running, with the numbers in the README
+- [ ] Honest question set — the current one was written while reading the
+      corpus and overstates recall
 - [ ] README with a demo GIF
 - [x] AGENTS.md and docs/decisions.md written
 - [ ] Published to PyPI (optional, but adds credibility)

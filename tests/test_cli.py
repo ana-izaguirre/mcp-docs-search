@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+import pytest
+
 from mcp_docs_search.cli import main
-from mcp_docs_search.store import list_documents, open_connection
+from mcp_docs_search.store import get_chunks, list_documents, open_connection
 
 
 def test_small_corpus_indexes_successfully(tmp_path: Path) -> None:
@@ -197,3 +199,174 @@ def test_rebuild_leaves_no_orphan_documents(tmp_path: Path) -> None:
     count = cursor.fetchone()[0]
     conn.close()
     assert count == 2
+
+# --- cross-layer: index for real, then read back ------------------------------
+
+def test_indexed_document_reads_back_in_source_order(tmp_path: Path) -> None:
+    """The seam test: CLI writes, store reads, order survives.
+
+    Per-layer tests missed the lexicographic ordering defect because their
+    fixtures never exceeded nine chunks. This one indexes a real file.
+    """
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    body = "".join(
+        f"## Section {i:02d}\n\n{'word ' * 40}marker{i:02d}\n\n" for i in range(15)
+    )
+    (folder / "long.md").write_text("# Title\n\n" + body, encoding="utf-8")
+    db = tmp_path / "docs.db"
+
+    assert main([str(folder), "--db", str(db)]) == 0
+
+    conn = open_connection(str(db))
+    try:
+        text = "\n\n".join(get_chunks(conn, "long.md"))
+    finally:
+        conn.close()
+
+    positions = [text.index(f"marker{i:02d}") for i in range(15)]
+    assert positions == sorted(positions), "chunks came back out of order"
+
+
+def test_chunk_index_is_contiguous_per_document(tmp_path: Path) -> None:
+    """Skipped chunks must not leave gaps that break ordering assumptions."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text(
+        "# A\n\n" + "x" * 200 + "\n\n## B\n\n" + "y" * 200 + "\n",
+        encoding="utf-8",
+    )
+    (folder / "b.md").write_text("# B\n\n" + "z" * 200 + "\n", encoding="utf-8")
+    db = tmp_path / "docs.db"
+
+    main([str(folder), "--db", str(db)])
+
+    conn = open_connection(str(db))
+    try:
+        for doc in ("a.md", "b.md"):
+            rows = conn.execute(
+                "SELECT CAST(chunk_index AS INTEGER) FROM chunks "
+                "WHERE document_path = ? ORDER BY 1",
+                (doc,),
+            ).fetchall()
+            assert [r[0] for r in rows] == list(range(len(rows)))
+    finally:
+        conn.close()
+
+
+# --- walking the folder -------------------------------------------------------
+
+def test_nested_folders_are_indexed(tmp_path: Path) -> None:
+    folder = tmp_path / "docs"
+    (folder / "guides" / "deep").mkdir(parents=True)
+    (folder / "top.md").write_text("# Top\n\n" + "a" * 200, encoding="utf-8")
+    (folder / "guides" / "mid.md").write_text(
+        "# Mid\n\n" + "b" * 200, encoding="utf-8"
+    )
+    (folder / "guides" / "deep" / "low.md").write_text(
+        "# Low\n\n" + "c" * 200, encoding="utf-8"
+    )
+    db = tmp_path / "docs.db"
+
+    assert main([str(folder), "--db", str(db)]) == 0
+
+    conn = open_connection(str(db))
+    try:
+        paths = {d.path for d in list_documents(conn)}
+    finally:
+        conn.close()
+    assert paths == {"top.md", "guides/mid.md", "guides/deep/low.md"}
+
+
+def test_non_markdown_files_are_ignored(tmp_path: Path) -> None:
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "keep.md").write_text("# Keep\n\n" + "a" * 200, encoding="utf-8")
+    (folder / "skip.txt").write_text("not markdown", encoding="utf-8")
+    (folder / "skip.markdown").write_text("# No\n\nbody", encoding="utf-8")
+    db = tmp_path / "docs.db"
+
+    main([str(folder), "--db", str(db)])
+
+    conn = open_connection(str(db))
+    try:
+        assert {d.path for d in list_documents(conn)} == {"keep.md"}
+    finally:
+        conn.close()
+
+
+def test_nonexistent_folder_exits_1(tmp_path: Path) -> None:
+    rc = main([str(tmp_path / "nope"), "--db", str(tmp_path / "d.db")])
+    assert rc == 1
+    assert not (tmp_path / "d.db").exists()
+
+
+def test_file_instead_of_folder_exits_1(tmp_path: Path) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("# A\n\nbody", encoding="utf-8")
+    assert main([str(target), "--db", str(tmp_path / "d.db")]) == 1
+
+
+def test_missing_db_argument_is_a_usage_error(tmp_path: Path) -> None:
+    """--db is required; argparse must reject rather than default silently."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\nbody", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        main([str(folder)])
+    assert exc.value.code == 2
+
+
+# --- the CLI is allowed to use stdout; the server is not ----------------------
+
+def test_cli_reports_progress_on_stdout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+
+    main([str(folder), "--db", str(tmp_path / "d.db")])
+
+    out = capsys.readouterr().out
+    assert "Indexed 1 files" in out
+
+
+def test_existing_db_message_names_the_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """SPEC: errors name the command to run, they do not just fail."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+    db = tmp_path / "d.db"
+    main([str(folder), "--db", str(db)])
+    capsys.readouterr()
+
+    rc = main([str(folder), "--db", str(db)])
+
+    assert rc == 1
+    assert "--rebuild" in capsys.readouterr().err
+
+
+def test_rebuild_leaves_no_orphan_chunks(tmp_path: Path) -> None:
+    """--rebuild drops removed files' chunks, not only their document rows."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+    (folder / "gone.md").write_text("# Gone\n\n" + "g" * 200, encoding="utf-8")
+    db = tmp_path / "docs.db"
+    main([str(folder), "--db", str(db)])
+
+    (folder / "gone.md").unlink()
+    assert main([str(folder), "--db", str(db), "--rebuild"]) == 0
+
+    conn = open_connection(str(db))
+    try:
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE document_path = 'gone.md'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert remaining == 0

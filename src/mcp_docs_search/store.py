@@ -77,6 +77,7 @@ def create_tables(db_path: str) -> Connection:
             """
             CREATE VIRTUAL TABLE chunks USING fts5(
                 chunk_id UNINDEXED,
+                chunk_index UNINDEXED,
                 document_path UNINDEXED,
                 heading_path,
                 content,
@@ -146,11 +147,23 @@ def insert_chunk(
     document_path: str,
     heading_path: str,
     content: str,
+    chunk_index: int = 0,
 ) -> None:
     """Insert a single chunk.
 
+    Args:
+        conn: An open database connection.
+        chunk_id: Identifier unique across the index.
+        document_path: Document path relative to the indexed root.
+        heading_path: Full heading path of the chunk.
+        content: Chunk body.
+        chunk_index: Position of the chunk within its document, counted
+            from 0. ``get_chunks`` orders by this, so it is what makes a
+            document reconstructable.
+
     Raises:
-        ValueError: If content is empty or exceeds MAX_CONTENT_LENGTH.
+        ValueError: If content is empty, exceeds MAX_CONTENT_LENGTH, or
+            chunk_index is negative.
         StoreError: If the chunk cannot be written to the index.
     """
     if not content or not content.strip():
@@ -161,13 +174,17 @@ def insert_chunk(
             f"Content too long: {len(content)} characters > {MAX_CONTENT_LENGTH}"
         )
 
+    if chunk_index < 0:
+        raise ValueError(f"chunk_index must be >= 0, got {chunk_index}")
+
     try:
         conn.execute(
             """
-            INSERT INTO chunks (chunk_id, document_path, heading_path, content)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO chunks
+                (chunk_id, chunk_index, document_path, heading_path, content)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (chunk_id, document_path, heading_path, content),
+            (chunk_id, chunk_index, document_path, heading_path, content),
         )
     except sqlite3.Error as exc:
         raise StoreError(f"Failed to insert chunk into {document_path}") from exc
@@ -186,14 +203,12 @@ def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
         relevant first.
 
     Raises:
-        ValueError: If query is empty or limit is out of range.
         StoreError: If the query cannot be executed.
     """
     if not query or not query.strip():
-        raise ValueError("Query cannot be empty")
+        return []
 
-    if not 1 <= limit <= 20:
-        raise ValueError(f"Limit must be between 1 and 20, got {limit}")
+    clamped_limit = max(1, min(limit, 20))
 
     safe_query = sanitise_query(query)
     if not safe_query:
@@ -202,11 +217,11 @@ def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
     # Try the implicit AND (space-separated terms) first.
     # If no chunk contains all terms, fall back to the explicit OR
     # (quoted terms joined by OR) so that any matching term is still returned.
-    and_results = _search_and(conn, safe_query, limit)
+    and_results = _search_and(conn, safe_query, clamped_limit)
     if and_results:
         return and_results
 
-    or_results = _search_or(conn, safe_query, limit)
+    or_results = _search_or(conn, safe_query, clamped_limit)
     return or_results
 
 
@@ -227,24 +242,22 @@ def search_with_score(
         content, score), most relevant first.
 
     Raises:
-        ValueError: If query is empty or limit is out of range.
         StoreError: If the query cannot be executed.
     """
     if not query or not query.strip():
-        raise ValueError("Query cannot be empty")
+        return []
 
-    if not 1 <= limit <= 20:
-        raise ValueError(f"Limit must be between 1 and 20, got {limit}")
+    clamped_limit = max(1, min(limit, 20))
 
     safe_query = sanitise_query(query)
     if not safe_query:
         return []
 
-    and_results = _search_and_with_score(conn, safe_query, limit)
+    and_results = _search_and_with_score(conn, safe_query, clamped_limit)
     if and_results:
         return and_results
 
-    or_results = _search_or_with_score(conn, safe_query, limit)
+    or_results = _search_or_with_score(conn, safe_query, clamped_limit)
     return or_results
 
 
@@ -298,25 +311,17 @@ _TOKEN_SANITISER = re.compile(r'[^a-zA-Z0-9._-]')
 def sanitise_query(query: str) -> str:
     """Sanitise a user query for safe FTS5 matching.
 
-    Splits the query on whitespace, strips every character FTS5 treats
-    as syntax from each token (keeping alphanumerics and intra-word
-    ``-``, ``_``, ````.)``), and wraps each surviving token in double
-    quotes so that any remaining special characters are treated as
-    literal text.  Tokens that become empty after stripping are
-    discarded.  If every token is dropped, an empty string is returned.
-
-    Args:
-        query: Raw user query string.
-
-    Returns:
-        A sanitised query safe to pass to ``FTS5 MATCH``, or an empty
-        string when no token survived.
+    Splits on whitespace, strips FTS5 operator characters and punctuation from
+    each token, then wraps each surviving term in double quotes. Quotes are
+    treated as punctuation and dropped rather than passed through to the FTS5
+    parser. Tokens that become empty are discarded; if every token is dropped,
+    the result is an empty string.
     """
     terms = query.split()
     cleaned = [_TOKEN_SANITISER.sub('', t) for t in terms]
     surviving = [t for t in cleaned if t]
-    escaped = ['"' + t.replace('"', '""') + '"' for t in surviving]
-    return " ".join(escaped)
+    quoted = ['"' + t + '"' for t in surviving]
+    return " ".join(quoted)
 
 
 def _search_and_with_score(
@@ -407,7 +412,7 @@ def get_chunks(conn: Connection, path: str) -> list[str]:
         path: Document path as stored in the index.
 
     Returns:
-        A list of content strings, ordered by chunk_id.
+        A list of content strings, in document order.
 
     Raises:
         StoreError: If the chunks cannot be retrieved.
@@ -417,7 +422,7 @@ def get_chunks(conn: Connection, path: str) -> list[str]:
             """
             SELECT content FROM chunks
             WHERE document_path = ?
-            ORDER BY chunk_id
+            ORDER BY CAST(chunk_index AS INTEGER)
             """,
             (path,),
         )

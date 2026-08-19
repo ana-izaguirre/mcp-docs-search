@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 from mcp_docs_search.store import (
+    MAX_CONTENT_LENGTH,
     create_tables,
     get_chunks,
     insert_chunk,
@@ -44,7 +45,9 @@ def test_insert_chunk(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content of chunk 1")
+        insert_chunk(
+            conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content of chunk 1", 0
+        )
 
         cursor = conn.execute("SELECT chunk_id, document_path, heading_path, content FROM chunks WHERE chunk_id = 'chunk1'")
         chunk = cursor.fetchone()
@@ -64,7 +67,7 @@ def test_insert_chunk_rejects_empty_content(tmp_path: Path) -> None:
     conn = create_tables(db_path)
     try:
         with pytest.raises(ValueError) as exc_info:
-            insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "")
+            insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "", 0)
 
         assert "empty" in str(exc_info.value).lower()
     finally:
@@ -79,7 +82,9 @@ def test_insert_chunk_rejects_too_long_content(tmp_path: Path) -> None:
         long_content = "x" * 50001
 
         with pytest.raises(ValueError) as exc_info:
-            insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", long_content)
+            insert_chunk(
+                conn, "chunk1", "doc1.md", "doc1.md > Section 1", long_content, 0
+            )
 
         assert "too long" in str(exc_info.value).lower()
     finally:
@@ -120,8 +125,22 @@ def test_search_with_valid_query(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "chunk1", "doc1.md", "doc1.md > Section 1", "Content about database and search")
-        insert_chunk(conn, "chunk2", "doc2.md", "doc2.md > Section 2", "Another document about caching")
+        insert_chunk(
+            conn,
+            "chunk1",
+            "doc1.md",
+            "doc1.md > Section 1",
+            "Content about database and search",
+            0,
+        )
+        insert_chunk(
+            conn,
+            "chunk2",
+            "doc2.md",
+            "doc2.md > Section 2",
+            "Another document about caching",
+            0,
+        )
 
         results = search(conn, "database", 5)
 
@@ -133,32 +152,28 @@ def test_search_with_valid_query(tmp_path: Path) -> None:
 
 
 def test_search_empty_query(tmp_path: Path) -> None:
-    """Test that search rejects empty query."""
+    """Empty queries return an empty result list."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "", 5)
-
-        assert "empty" in str(exc_info.value).lower()
+        assert search(conn, "", 5) == []
+        assert search(conn, "   ", 5) == []
     finally:
         conn.close()
 
 
 def test_search_invalid_limit(tmp_path: Path) -> None:
-    """Test that search validates limit parameter."""
+    """Search clamps out-of-range limits instead of rejecting them."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "test", 0)
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
 
-        assert "between 1 and 20" in str(exc_info.value)
-
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "test", 21)
-
-        assert "between 1 and 20" in str(exc_info.value)
+        assert search(conn, "alpha", 0) == [
+            ("c", "doc.md", "doc.md > S", "alpha content")
+        ]
+        assert len(search(conn, "alpha", 21)) == 1
     finally:
         conn.close()
 
@@ -168,7 +183,7 @@ def test_search_with_score_returns_scores(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "c1", "doc.md", "doc.md > S", "content about testing")
+        insert_chunk(conn, "c1", "doc.md", "doc.md > S", "content about testing", 0)
         results = search_with_score(conn, "testing", 5)
         assert len(results) == 1
         assert results[0].chunk_id == "c1"
@@ -188,7 +203,7 @@ def test_list_documents_returns_all_with_counts(tmp_path: Path) -> None:
         conn.execute(
             "INSERT INTO documents (path, indexed_at) VALUES ('b.md', '2025-01-02')"
         )
-        insert_chunk(conn, "0_0", "a.md", "a.md > Intro", "hello world")
+        insert_chunk(conn, "0_0", "a.md", "a.md > Intro", "hello world", 0)
         conn.commit()
 
         docs = list_documents(conn)
@@ -207,8 +222,8 @@ def test_get_chunks_ordered_by_chunk_id(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "0_1", "doc.md", "doc.md > Second", "second chunk")
-        insert_chunk(conn, "0_0", "doc.md", "doc.md > First", "first chunk")
+        insert_chunk(conn, "0_1", "doc.md", "doc.md > Second", "second chunk", 1)
+        insert_chunk(conn, "0_0", "doc.md", "doc.md > First", "first chunk", 0)
         conn.commit()
 
         chunks = get_chunks(conn, "doc.md")
@@ -253,7 +268,7 @@ def test_sanitise_query_wraps_terms() -> None:
 
 
 def test_sanitise_query_escapes_quotes() -> None:
-    """Test that sanitise_query strips and escapes quotes."""
+    """Quotes are treated as punctuation and stripped before matching."""
     assert sanitise_query('say "hi"') == '"say" "hi"'
 
 
@@ -277,7 +292,7 @@ def test_sanitise_query_only_punctuation() -> None:
     assert sanitise_query("!!! ???") == ""
 
 
-def test_search_handles_punctuation_queries(tmp_path) -> None:
+def test_search_handles_punctuation_queries(tmp_path: Path) -> None:
     """Test that search handles queries with punctuation without FTS5 errors."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
@@ -305,7 +320,7 @@ def test_search_handles_punctuation_queries(tmp_path) -> None:
         conn.close()
 
 
-def test_search_only_punctuation_returns_empty(tmp_path) -> None:
+def test_search_only_punctuation_returns_empty(tmp_path: Path) -> None:
     """Test that a query of only punctuation returns an empty list."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
@@ -324,8 +339,8 @@ def test_search_falls_back_to_or(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
-        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta", 0)
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma", 0)
         conn.commit()
 
         # No chunk contains both "beta" AND "gamma" — AND fails.
@@ -344,8 +359,8 @@ def test_search_returns_and_results_no_fallback(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
-        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta", 0)
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma", 0)
         conn.commit()
 
         # Both terms appear together in chunk 0_0.
@@ -362,8 +377,8 @@ def test_search_with_score_falls_back_to_or(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta")
-        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma")
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha and beta", 0)
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "alpha and gamma", 0)
         conn.commit()
 
         results = search_with_score(conn, "beta gamma", 5)
@@ -381,8 +396,8 @@ def test_search_or_results_not_merged(tmp_path: Path) -> None:
     try:
         # 0_0 has "beta" but not "gamma"
         # 0_1 has "gamma" but not "beta"
-        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha beta")
-        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "gamma delta")
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "alpha beta", 0)
+        insert_chunk(conn, "0_1", "doc2.md", "doc2.md > S", "gamma delta", 0)
         conn.commit()
 
         results = search(conn, "beta gamma", 5)
@@ -391,5 +406,227 @@ def test_search_or_results_not_merged(tmp_path: Path) -> None:
         assert len(results) == 2
         chunk_ids = {r[0] for r in results}
         assert chunk_ids == {"0_0", "0_1"}
+    finally:
+        conn.close()
+
+
+# --- chunk ordering -----------------------------------------------------------
+
+def test_get_chunks_orders_beyond_ten_chunks(tmp_path: Path) -> None:
+    """Regression: ordering must be numeric, not lexicographic.
+
+    chunk_id is TEXT of the form "<file>_<chunk>", so ordering by it put
+    "0_10" between "0_1" and "0_2" and scrambled every document with more
+    than ten chunks.
+    """
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        for i in range(12):
+            insert_chunk(
+                conn, f"0_{i}", "doc.md", f"doc.md > S{i}", f"body {i}", i
+            )
+        conn.commit()
+
+        assert get_chunks(conn, "doc.md") == [f"body {i}" for i in range(12)]
+    finally:
+        conn.close()
+
+
+def test_get_chunks_ignores_insertion_order(tmp_path: Path) -> None:
+    """chunk_index decides the order, not the order rows were written."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "c", "doc.md", "doc.md > C", "third", 2)
+        insert_chunk(conn, "a", "doc.md", "doc.md > A", "first", 0)
+        insert_chunk(conn, "b", "doc.md", "doc.md > B", "second", 1)
+        conn.commit()
+
+        assert get_chunks(conn, "doc.md") == ["first", "second", "third"]
+    finally:
+        conn.close()
+
+
+def test_get_chunks_only_returns_the_requested_document(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "a.md", "a.md > S", "from a", 0)
+        insert_chunk(conn, "1_0", "b.md", "b.md > S", "from b", 0)
+        conn.commit()
+
+        assert get_chunks(conn, "a.md") == ["from a"]
+    finally:
+        conn.close()
+
+
+def test_insert_chunk_rejects_negative_index(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        with pytest.raises(ValueError, match="chunk_index"):
+            insert_chunk(conn, "c", "doc.md", "doc.md > S", "body", -1)
+    finally:
+        conn.close()
+
+
+# --- validation boundaries ----------------------------------------------------
+
+def test_insert_chunk_accepts_content_at_max_length(tmp_path: Path) -> None:
+    """The limit is inclusive: exactly MAX_CONTENT_LENGTH is allowed."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(
+            conn, "c", "doc.md", "doc.md > S", "x" * MAX_CONTENT_LENGTH, 0
+        )
+        conn.commit()
+        assert len(get_chunks(conn, "doc.md")) == 1
+    finally:
+        conn.close()
+
+
+def test_insert_chunk_rejects_one_over_max_length(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        with pytest.raises(ValueError, match="too long"):
+            insert_chunk(
+                conn,
+                "c",
+                "doc.md",
+                "doc.md > S",
+                "x" * (MAX_CONTENT_LENGTH + 1),
+                0,
+            )
+    finally:
+        conn.close()
+
+
+def test_insert_chunk_rejects_whitespace_only_content(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        with pytest.raises(ValueError, match="empty"):
+            insert_chunk(conn, "c", "doc.md", "doc.md > S", "   \n\t ", 0)
+    finally:
+        conn.close()
+
+
+def test_insert_document_rejects_empty_indexed_at(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        with pytest.raises(ValueError, match="indexed_at"):
+            insert_document(conn, "doc.md", "")
+    finally:
+        conn.close()
+
+
+def test_insert_document_duplicate_path_raises_store_error(
+    tmp_path: Path,
+) -> None:
+    """path is the primary key; a repeat must surface as StoreError."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_document(conn, "doc.md", "2025-01-01")
+        with pytest.raises(StoreError):
+            insert_document(conn, "doc.md", "2025-01-02")
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("limit", [1, 20])
+def test_search_accepts_limit_boundaries(tmp_path: Path, limit: int) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
+        assert isinstance(search(conn, "alpha", limit), list)
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("limit", [0, 21, -1])
+def test_search_rejects_limit_outside_boundaries(
+    tmp_path: Path, limit: int
+) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
+        assert len(search(conn, "alpha", limit)) == 1
+    finally:
+        conn.close()
+
+
+def test_search_rejects_whitespace_only_query(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        assert search(conn, "   ", 5) == []
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ['NEAR(alpha beta)', 'alpha*', '"unbalanced', 'alpha OR', '(((', 'a AND'],
+)
+def test_sanitised_operators_never_raise(tmp_path: Path, raw: str) -> None:
+    """SPEC: operator characters are literal terms, never FTS5 syntax."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha and beta", 0)
+        conn.commit()
+        assert isinstance(search(conn, sanitise_query(raw), 5), list)
+    finally:
+        conn.close()
+
+
+def test_list_documents_on_empty_index(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        assert list_documents(conn) == []
+    finally:
+        conn.close()
+
+
+def test_search_on_empty_index_returns_no_results(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        assert search(conn, sanitise_query("anything"), 5) == []
+    finally:
+        conn.close()
+
+
+def test_search_with_score_rejects_bad_limit(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
+        assert len(search_with_score(conn, "alpha", 99)) == 1
+    finally:
+        conn.close()
+
+
+def test_search_respects_limit(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        for i in range(10):
+            insert_chunk(
+                conn, f"c{i}", "doc.md", f"doc.md > S{i}", "alpha content", i
+            )
+        conn.commit()
+        assert len(search(conn, "alpha", 3)) == 3
     finally:
         conn.close()

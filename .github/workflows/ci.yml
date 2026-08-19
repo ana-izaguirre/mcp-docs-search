@@ -28,7 +28,7 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Type check
-        run: uv run mypy --strict src/ tests/
+        run: uv run mypy --strict src/ tests/ evals/ scripts/
 
       - name: Run tests
         run: uv run pytest
@@ -37,3 +37,35 @@ jobs:
         run: |
           uv run mcp-docs-search ./docs --db ./ci.db --rebuild
           uv run mcp-docs-search-server --help
+
+      - name: Exercise the live MCP server
+        run: uv run python scripts/mcp_smoke.py --db ./ci.db --query "chunking"
+
+  evals:
+    # Retrieval quality is a published number. If the harness breaks or the
+    # question set stops matching the fixtures, the build says so.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run retrieval evals
+        run: uv run python evals/run_evals.py | tee evals-output.txt
+
+      - name: Check the README quotes the measured numbers
+        run: |
+          measured=$(grep -o 'recall@1: [0-9.]*   recall@3: [0-9.]*' evals-output.txt)
+          echo "measured: $measured"
+          if ! grep -qF "$measured" README.md; then
+            echo "::error::README retrieval numbers are stale."
+            echo "README must contain: $measured"
+            grep -n 'recall@1' README.md || true
+            exit 1
+          fi
