@@ -61,14 +61,18 @@ jobs:
         run: uv run python -m compileall src tests evals scripts
 
   test:
-    name: tests / ${{ matrix.os }}
+    name: tests (${{ matrix.label }})
     needs: lint
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            label: ubuntu
+          - os: windows-latest
+            label: windows
 
     steps:
       - uses: actions/checkout@v4
