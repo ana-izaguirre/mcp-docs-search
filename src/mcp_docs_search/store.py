@@ -17,6 +17,7 @@ __all__ = [
     "open_connection",
     "insert_document",
     "insert_chunk",
+    "commit",
     "search",
     "sanitise_query",
     "search_with_score",
@@ -188,6 +189,22 @@ def insert_chunk(
         )
     except sqlite3.Error as exc:
         raise StoreError(f"Failed to insert chunk into {document_path}") from exc
+
+
+def commit(conn: Connection) -> None:
+    """Commit the open transaction.
+
+    Exists so callers never have to touch ``sqlite3`` themselves: a commit
+    can fail (disk full, database locked) and that failure has to reach the
+    CLI as a ``StoreError`` like every other storage failure.
+
+    Raises:
+        StoreError: If the transaction cannot be committed.
+    """
+    try:
+        conn.commit()
+    except sqlite3.Error as exc:
+        raise StoreError("Failed to commit the index") from exc
 
 
 def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:

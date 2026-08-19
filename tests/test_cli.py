@@ -4,8 +4,14 @@ from pathlib import Path
 
 import pytest
 
+import mcp_docs_search.cli as cli_module
 from mcp_docs_search.cli import main
-from mcp_docs_search.store import get_chunks, list_documents, open_connection
+from mcp_docs_search.store import (
+    StoreError,
+    get_chunks,
+    list_documents,
+    open_connection,
+)
 
 
 def test_small_corpus_indexes_successfully(tmp_path: Path) -> None:
@@ -370,3 +376,108 @@ def test_rebuild_leaves_no_orphan_chunks(tmp_path: Path) -> None:
     finally:
         conn.close()
     assert remaining == 0
+
+
+# --- failure paths: previously uncovered, and previously masked ---------------
+
+def test_programming_errors_are_not_reported_as_io_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bug in the chunker must surface, not be relabelled as an I/O error.
+
+    The indexing loop used to catch bare `Exception`, so a TypeError from
+    `chunk_markdown` reached the user as "I/O error" with exit code 2 —
+    sending them to look at disk permissions instead of the parser.
+    """
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+
+    def exploding_chunker(source: str) -> object:
+        raise TypeError("bad argument in _split_sections")
+
+    monkeypatch.setattr(cli_module, "chunk_markdown", exploding_chunker)
+
+    with pytest.raises(TypeError, match="_split_sections"):
+        main([str(folder), "--db", str(tmp_path / "d.db")])
+
+
+def test_database_creation_failure_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+
+    def failing_create(db_path: str) -> object:
+        raise StoreError("disk is full")
+
+    monkeypatch.setattr(cli_module, "create_tables", failing_create)
+
+    rc = main([str(folder), "--db", str(tmp_path / "d.db")])
+
+    assert rc == 2
+    assert "Could not create database" in capsys.readouterr().err
+
+
+def test_store_failure_during_indexing_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+
+    def failing_insert(conn: object, path: str, indexed_at: str) -> None:
+        raise StoreError("database is locked")
+
+    monkeypatch.setattr(cli_module, "insert_document", failing_insert)
+
+    rc = main([str(folder), "--db", str(tmp_path / "d.db")])
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "Indexing failed" in err
+    assert "database is locked" in err
+
+
+def test_undeletable_database_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--rebuild on a database the process cannot remove."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "a.md").write_text("# A\n\n" + "a" * 200, encoding="utf-8")
+    db = tmp_path / "d.db"
+    main([str(folder), "--db", str(db)])
+    capsys.readouterr()
+
+    def refuse_unlink(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "unlink", refuse_unlink)
+
+    rc = main([str(folder), "--db", str(db), "--rebuild"])
+
+    assert rc == 2
+    assert "Could not remove" in capsys.readouterr().err
+
+
+def test_oversized_chunk_is_skipped_with_a_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A chunk over the store's limit warns and is skipped; the run continues."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    huge = "word " * 12000
+    (folder / "big.md").write_text(f"# Big\n\n{huge}\n", encoding="utf-8")
+    (folder / "ok.md").write_text("# Ok\n\n" + "a" * 200, encoding="utf-8")
+
+    rc = main([str(folder), "--db", str(tmp_path / "d.db")])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert "Warning: skipping chunk in big.md" in captured.err
+    assert "Indexed 2 files" in captured.out
