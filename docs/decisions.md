@@ -275,3 +275,29 @@ were right in isolation. SPEC section 8 already names this gap and calls a CI
 smoke test the mitigation, but a smoke test only proves the process starts. The
 tests that matter are the ones that index a real folder and then read it back
 through the real protocol, because that is the path the user's agent takes.
+
+### Punctuation must be stripped before FTS5 matching
+
+**Context** — A hand-written evaluation question containing a comma —
+"I call an endpoint and it hangs forever, is there a timeout" — raised
+`fts5: syntax error near ","`. `sanitise_query` split on whitespace and
+quoted each token, but the comma still broke the FTS5 parser inside the
+quotes.
+
+**Proposed** — Quoting alone was assumed sufficient to make operator
+characters inert.
+
+**Decided** — Each token is stripped of characters FTS5 treats as syntax
+before quoting. Alphanumerics and intra-word hyphen, underscore and dot
+are kept; everything else is dropped. Tokens that become empty are
+discarded.
+
+**Why** — Every query test and every generated evaluation question used
+text without punctuation. The first question written the way a person
+would actually write it broke the engine. The eval corpus does not only
+measure retrieval quality; it exercises input paths that unit tests do
+not represent.
+
+**Found by** — The evaluation harness was written to mirror real user input, not
+a contrived search API. Once a natural-language question included punctuation,
+FTS5 exposed the weakness immediately.

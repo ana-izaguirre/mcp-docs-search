@@ -181,7 +181,7 @@ def test_sanitise_query_wraps_terms_in_quotes() -> None:
 
 
 def test_sanitise_query_escapes_internal_quotes() -> None:
-    assert sanitise_query('say "hi"') == '"say" """hi"""'
+    assert sanitise_query('say "hi"') == '"say" "hi"'
 
 
 def test_sanitise_query_handles_special_operators() -> None:

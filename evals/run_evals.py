@@ -39,37 +39,39 @@ def build_index(db_path: Path, fixtures_dir: Path) -> None:
 def run_questions(db_path: Path, questions: list[dict[str, str]]) -> None:
     """Run all questions and report recall metrics."""
     conn = open_connection(str(db_path))
+    try:
+        recall1_hits = 0
+        recall3_hits = 0
+        failures: list[tuple[str, str, list[str]]] = []
 
-    recall1_hits = 0
-    recall3_hits = 0
-    failures: list[tuple[str, str, list[str]]] = []
+        for q in questions:
+            query = q["query"]
+            expected = q["expected_source"]
 
-    for q in questions:
-        query = q["query"]
-        expected = q["expected_source"]
+            results = search(conn, query, limit=3)
+            documents = [r[1] for r in results]
 
-        results = search(conn, query, limit=3)
-        documents = [r[1] for r in results]
+            top1 = documents[0] if documents else ""
+            top3 = documents[:3]
 
-        top1 = documents[0] if documents else ""
-        top3 = documents[:3]
-
-        if top1 == expected:
-            recall1_hits += 1
-        if expected in top3:
-            recall3_hits += 1
-        else:
-            failures.append((query, expected, top3))
-
-    conn.close()
+            if top1 == expected:
+                recall1_hits += 1
+            if expected in top3:
+                recall3_hits += 1
+            else:
+                failures.append((query, expected, top3))
+    finally:
+        conn.close()
 
     n = len(questions)
     recall1 = recall1_hits / n if n else 0.0
     recall3 = recall3_hits / n if n else 0.0
 
     conn = open_connection(str(db_path))
-    docs = list_documents(conn)
-    conn.close()
+    try:
+        docs = list_documents(conn)
+    finally:
+        conn.close()
     total_chunks = sum(d.chunk_count for d in docs)
 
     print(

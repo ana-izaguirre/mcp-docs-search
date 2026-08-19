@@ -1,5 +1,6 @@
 """SQLite FTS5 storage for document chunks."""
 
+import re
 import sqlite3
 from pathlib import Path
 from typing import NamedTuple
@@ -146,7 +147,7 @@ def insert_chunk(
     document_path: str,
     heading_path: str,
     content: str,
-    chunk_index: int,
+    chunk_index: int = 0,
 ) -> None:
     """Insert a single chunk.
 
@@ -202,23 +203,25 @@ def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
         relevant first.
 
     Raises:
-        ValueError: If query is empty or limit is out of range.
         StoreError: If the query cannot be executed.
     """
     if not query or not query.strip():
-        raise ValueError("Query cannot be empty")
+        return []
 
-    if not 1 <= limit <= 20:
-        raise ValueError(f"Limit must be between 1 and 20, got {limit}")
+    clamped_limit = max(1, min(limit, 20))
+
+    safe_query = sanitise_query(query)
+    if not safe_query:
+        return []
 
     # Try the implicit AND (space-separated terms) first.
     # If no chunk contains all terms, fall back to the explicit OR
     # (quoted terms joined by OR) so that any matching term is still returned.
-    and_results = _search_and(conn, query, limit)
+    and_results = _search_and(conn, safe_query, clamped_limit)
     if and_results:
         return and_results
 
-    or_results = _search_or(conn, query, limit)
+    or_results = _search_or(conn, safe_query, clamped_limit)
     return or_results
 
 
@@ -239,20 +242,22 @@ def search_with_score(
         content, score), most relevant first.
 
     Raises:
-        ValueError: If query is empty or limit is out of range.
         StoreError: If the query cannot be executed.
     """
     if not query or not query.strip():
-        raise ValueError("Query cannot be empty")
+        return []
 
-    if not 1 <= limit <= 20:
-        raise ValueError(f"Limit must be between 1 and 20, got {limit}")
+    clamped_limit = max(1, min(limit, 20))
 
-    and_results = _search_and_with_score(conn, query, limit)
+    safe_query = sanitise_query(query)
+    if not safe_query:
+        return []
+
+    and_results = _search_and_with_score(conn, safe_query, clamped_limit)
     if and_results:
         return and_results
 
-    or_results = _search_or_with_score(conn, query, limit)
+    or_results = _search_or_with_score(conn, safe_query, clamped_limit)
     return or_results
 
 
@@ -300,23 +305,23 @@ def _search_or(conn: Connection, query: str, limit: int) -> list[SearchResult]:
     return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
 
 
+_TOKEN_SANITISER = re.compile(r'[^a-zA-Z0-9._-]')
+
+
 def sanitise_query(query: str) -> str:
     """Sanitise a user query for safe FTS5 matching.
 
-    Wraps each term in double quotes and escapes internal quotes so that
-    special FTS5 characters (wildcards, parentheses, operators) are
-    treated as literal text. This prevents ``sqlite3.OperationalError``
-    on malformed FTS5 syntax.
-
-    Args:
-        query: Raw user query string.
-
-    Returns:
-        A sanitised query safe to pass to ``FTS5 MATCH``.
+    Splits on whitespace, strips FTS5 operator characters and punctuation from
+    each token, then wraps each surviving term in double quotes. Quotes are
+    treated as punctuation and dropped rather than passed through to the FTS5
+    parser. Tokens that become empty are discarded; if every token is dropped,
+    the result is an empty string.
     """
     terms = query.split()
-    escaped = ['"' + t.replace('"', '""') + '"' for t in terms]
-    return " ".join(escaped)
+    cleaned = [_TOKEN_SANITISER.sub('', t) for t in terms]
+    surviving = [t for t in cleaned if t]
+    quoted = ['"' + t + '"' for t in surviving]
+    return " ".join(quoted)
 
 
 def _search_and_with_score(

@@ -152,32 +152,28 @@ def test_search_with_valid_query(tmp_path: Path) -> None:
 
 
 def test_search_empty_query(tmp_path: Path) -> None:
-    """Test that search rejects empty query."""
+    """Empty queries return an empty result list."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "", 5)
-
-        assert "empty" in str(exc_info.value).lower()
+        assert search(conn, "", 5) == []
+        assert search(conn, "   ", 5) == []
     finally:
         conn.close()
 
 
 def test_search_invalid_limit(tmp_path: Path) -> None:
-    """Test that search validates limit parameter."""
+    """Search clamps out-of-range limits instead of rejecting them."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "test", 0)
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
 
-        assert "between 1 and 20" in str(exc_info.value)
-
-        with pytest.raises(ValueError) as exc_info:
-            search(conn, "test", 21)
-
-        assert "between 1 and 20" in str(exc_info.value)
+        assert search(conn, "alpha", 0) == [
+            ("c", "doc.md", "doc.md > S", "alpha content")
+        ]
+        assert len(search(conn, "alpha", 21)) == 1
     finally:
         conn.close()
 
@@ -272,13 +268,70 @@ def test_sanitise_query_wraps_terms() -> None:
 
 
 def test_sanitise_query_escapes_quotes() -> None:
-    """Test that sanitise_query escapes internal quotes."""
-    assert sanitise_query('say "hi"') == '"say" """hi"""'
+    """Quotes are treated as punctuation and stripped before matching."""
+    assert sanitise_query('say "hi"') == '"say" "hi"'
 
 
 def test_sanitise_query_empty() -> None:
     """Test that sanitise_query handles empty string."""
     assert sanitise_query("") == ""
+
+
+def test_sanitise_query_strips_punctuation() -> None:
+    """Test that sanitise_query strips FTS5 syntax characters."""
+    assert sanitise_query(
+        "I call an endpoint and it hangs forever, is there a timeout"
+    ) == '"I" "call" "an" "endpoint" "and" "it" "hangs" "forever" "is" "there" "a" "timeout"'
+    assert sanitise_query("what's the p95 latency?") == '"whats" "the" "p95" "latency"'
+    assert sanitise_query("error: connection refused") == '"error" "connection" "refused"'
+    assert sanitise_query("use --rebuild to recreate it") == '"use" "--rebuild" "to" "recreate" "it"'
+
+
+def test_sanitise_query_only_punctuation() -> None:
+    """Test that sanitise_query returns empty for punctuation-only input."""
+    assert sanitise_query("!!! ???") == ""
+
+
+def test_search_handles_punctuation_queries(tmp_path) -> None:
+    """Test that search handles queries with punctuation without FTS5 errors."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(
+            conn, "0_0", "doc1.md", "doc1.md > S",
+            "endpoint timeout configuration",
+        )
+        insert_chunk(
+            conn, "0_1", "doc2.md", "doc2.md > S",
+            "latency p95 metrics",
+        )
+        conn.commit()
+
+        queries = [
+            "I call an endpoint and it hangs forever, is there a timeout",
+            "what's the p95 latency?",
+            "error: connection refused",
+            "use --rebuild to recreate it",
+        ]
+        for q in queries:
+            results = search(conn, q, 5)
+            assert isinstance(results, list)
+    finally:
+        conn.close()
+
+
+def test_search_only_punctuation_returns_empty(tmp_path) -> None:
+    """Test that a query of only punctuation returns an empty list."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "some content")
+        conn.commit()
+
+        results = search(conn, "!!! ???", 5)
+        assert results == []
+    finally:
+        conn.close()
 
 
 def test_search_falls_back_to_or(tmp_path: Path) -> None:
@@ -504,8 +557,9 @@ def test_search_rejects_limit_outside_boundaries(
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError, match="between 1 and 20"):
-            search(conn, "alpha", limit)
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
+        assert len(search(conn, "alpha", limit)) == 1
     finally:
         conn.close()
 
@@ -514,8 +568,7 @@ def test_search_rejects_whitespace_only_query(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError, match="empty"):
-            search(conn, "   ", 5)
+        assert search(conn, "   ", 5) == []
     finally:
         conn.close()
 
@@ -558,8 +611,9 @@ def test_search_with_score_rejects_bad_limit(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
     try:
-        with pytest.raises(ValueError, match="between 1 and 20"):
-            search_with_score(conn, "alpha", 99)
+        insert_chunk(conn, "c", "doc.md", "doc.md > S", "alpha content", 0)
+        conn.commit()
+        assert len(search_with_score(conn, "alpha", 99)) == 1
     finally:
         conn.close()
 
