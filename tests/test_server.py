@@ -6,7 +6,9 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from mcp.types import CallToolResult
 
+import mcp_docs_search.server as server_module
 from mcp_docs_search.server import (
     _clamp_limit,
     _get_document,
@@ -16,6 +18,7 @@ from mcp_docs_search.server import (
 )
 from mcp_docs_search.store import (
     Connection,
+    StoreError,
     create_tables,
     insert_chunk,
     open_connection,
@@ -342,3 +345,59 @@ def test_nothing_writes_to_stdout_on_failure_paths(
     asyncio.run(_get_document(conn, "guide.md"))
     asyncio.run(_get_document(conn, "missing.md"))
     assert capsys.readouterr().out == ""
+
+
+# --- the registered tools, invoked through the server ------------------------
+
+@pytest.mark.anyio
+async def test_registered_search_docs_tool_runs(db_path: Path) -> None:
+    """Exercise the closure the MCP client actually calls, not the helper."""
+    server = create_server(db_path)
+    result = await server.call_tool("search_docs", {"query": "retries", "limit": 3})
+    assert isinstance(result, CallToolResult)
+    items = (result.structured_content or {})["result"]
+
+    assert items
+    assert items[0]["document_path"] == "guide.md"
+
+
+@pytest.mark.anyio
+async def test_registered_list_sources_tool_runs(db_path: Path) -> None:
+    server = create_server(db_path)
+    result = await server.call_tool("list_sources", {})
+    assert isinstance(result, CallToolResult)
+    listed = (result.structured_content or {})["result"]
+
+    assert {s["path"] for s in listed} == {"guide.md", "reference.md"}
+
+
+@pytest.mark.anyio
+async def test_registered_get_document_tool_runs(db_path: Path) -> None:
+    server = create_server(db_path)
+    result = await server.call_tool("get_document", {"path": "guide.md"})
+    assert isinstance(result, CallToolResult)
+    body = (result.structured_content or {})["result"]
+
+    assert "installation" in body
+
+
+def test_unreadable_database_is_reported_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The file exists but cannot be opened: same actionable message, exit 1."""
+    present = tmp_path / "present.db"
+    present.write_text("not a database", encoding="utf-8")
+
+    def refuse(db_path: str) -> Connection:
+        raise StoreError("file is not a database")
+
+    monkeypatch.setattr(server_module, "open_connection", refuse)
+
+    with pytest.raises(SystemExit) as exc:
+        create_server(present)
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Database not found" in err
+    assert "mcp-docs-search" in err
