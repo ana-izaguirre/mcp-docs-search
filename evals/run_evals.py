@@ -36,7 +36,7 @@ def build_index(db_path: Path, fixtures_dir: Path) -> None:
         raise RuntimeError(f"Indexing failed with exit code {exit_code}")
 
 
-def run_questions(db_path: Path, questions: list[dict]) -> None:
+def run_questions(db_path: Path, questions: list[dict[str, str]]) -> None:
     """Run all questions and report recall metrics."""
     conn = open_connection(str(db_path))
 
@@ -93,7 +93,7 @@ def main() -> int:
         build_index(db_path, FIXTURES_DIR)
 
         with open(QUESTIONS_FILE, "rb") as f:
-            data = tomllib.load(f)
+            data: dict[str, list[dict[str, str]]] = tomllib.load(f)
 
         questions = data["question"]
         run_questions(db_path, questions)

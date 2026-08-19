@@ -8,7 +8,7 @@ Las reglas que verifica cada bloque:
   R4  seccion corta al final -> fusion hacia atras
 """
 
-from mcp_docs_search.ingest import chunk_markdown
+from mcp_docs_search.ingest import chunk_markdown, format_heading_path
 
 MIN_CHARS = 100
 MAX_CHARS = 1500
@@ -128,3 +128,115 @@ def test_attr_list_suffix_stripped_from_heading() -> None:
         chunks = chunk_markdown(source)
         assert len(chunks) == 1, source
         assert chunks[0].heading_path == expected_path, source
+
+
+# --- degenerate input ---------------------------------------------------------
+
+def test_empty_source_produces_no_chunks() -> None:
+    assert chunk_markdown("") == []
+
+
+def test_whitespace_only_source_produces_no_chunks() -> None:
+    assert chunk_markdown("   \n\n\t\n  ") == []
+
+
+def test_text_without_any_heading_is_still_one_chunk() -> None:
+    """A README fragment with no heading must not be dropped silently."""
+    source = "Just a paragraph. " * 20
+    chunks = chunk_markdown(source)
+
+    assert len(chunks) == 1
+    assert chunks[0].heading_path == ()
+    assert "Just a paragraph." in chunks[0].text
+
+
+def test_preamble_before_the_first_heading_is_kept() -> None:
+    source = "Intro text before any heading. " * 8 + "\n\n# Title\n\n" + "body " * 40
+    chunks = chunk_markdown(source)
+
+    assert any("Intro text before any heading." in c.text for c in chunks)
+
+
+def test_crlf_and_cr_line_endings_normalise() -> None:
+    body = "content " * 30
+    lf = chunk_markdown(f"# Title\n\n{body}\n")
+    crlf = chunk_markdown(f"# Title\r\n\r\n{body}\r\n")
+    cr = chunk_markdown(f"# Title\r\r{body}\r")
+
+    assert [c.text for c in lf] == [c.text for c in crlf] == [c.text for c in cr]
+
+
+def test_deep_heading_levels_are_chunked() -> None:
+    """SPEC names #/##/### but real corpora go deeper; nothing may be lost."""
+    source = "".join(
+        f"{'#' * level} Level {level}\n\n{'body ' * 40}\n\n" for level in range(1, 7)
+    )
+    chunks = chunk_markdown(source)
+
+    assert len(chunks) == 6
+    assert chunks[-1].level == 6
+    assert chunks[-1].heading_path[-1] == "Level 6"
+
+
+def test_heading_path_nests_through_levels() -> None:
+    source = (
+        "# Guide\n\n" + "a" * 150 + "\n\n"
+        "## Installation\n\n" + "b" * 150 + "\n\n"
+        "### Configuration\n\n" + "c" * 150 + "\n"
+    )
+    chunks = chunk_markdown(source)
+    paths = [c.heading_path for c in chunks]
+
+    assert ("Guide",) in paths
+    assert ("Guide", "Installation") in paths
+    assert ("Guide", "Installation", "Configuration") in paths
+
+
+def test_format_heading_path_without_headings_is_just_the_file() -> None:
+    assert format_heading_path("guide.md", ()) == "guide.md"
+
+
+def test_format_heading_path_joins_with_the_separator() -> None:
+    assert (
+        format_heading_path("guide.md", ("Setup", "Config"))
+        == "guide.md > Setup > Config"
+    )
+
+
+# --- splitting ----------------------------------------------------------------
+
+def test_oversized_section_splits_into_several_chunks() -> None:
+    paragraph = "word " * 100
+    source = "# Title\n\n" + "\n\n".join([paragraph] * 8)
+    chunks = chunk_markdown(source)
+
+    assert len(chunks) > 1
+    assert all(c.heading_path == ("Title",) for c in chunks)
+
+
+def test_split_chunks_keep_every_paragraph() -> None:
+    """Splitting must lose nothing — the failure mode is silent content loss."""
+    paragraphs = [f"paragraph{i} " + "filler " * 60 for i in range(10)]
+    source = "# Title\n\n" + "\n\n".join(paragraphs)
+
+    rejoined = " ".join(c.text for c in chunk_markdown(source))
+
+    for i in range(10):
+        assert f"paragraph{i}" in rejoined
+
+
+def test_single_oversized_paragraph_is_not_cut() -> None:
+    """An unsplittable paragraph stays whole rather than being cut mid-sentence."""
+    paragraph = "word " * 600
+    chunks = chunk_markdown("# Title\n\n" + paragraph)
+
+    assert len(chunks) == 1
+    assert len(chunks[0].text) > MAX_CHARS
+
+
+def test_code_block_is_never_cut_in_half() -> None:
+    fence = "```python\n" + "x = 1\n" * 300 + "```"
+    chunks = chunk_markdown("# Title\n\n" + fence)
+
+    for chunk in chunks:
+        assert chunk.text.count("```") % 2 == 0
