@@ -1,3 +1,103 @@
+# Decisions
+
+Format: **Context → What was proposed → What was decided → Why.**
+Only decisions a future reader would otherwise question.
+
+---
+
+## Foundational
+
+### FTS5 instead of a vector store
+
+**Context** — The obvious build for "search over documentation" in 2025 is
+embeddings in a vector database. The project deliberately does not start there.
+
+**Proposed** — Embed the chunks and store the vectors in a dedicated vector
+database, so semantic search works from day one.
+
+**Decided** — SQLite FTS5 with BM25 ranking for Phase 1, in a single `.db`
+file. Embeddings become one more table in the same file in Phase 2.
+
+**Why** — Three reasons, in order of weight. First, it costs nothing to run:
+FTS5 ships inside the standard library's `sqlite3` module, so there is no
+service, no Docker, no API key, and trying the project is one command. Second,
+it produces a measurable baseline — adding embeddings without knowing what
+plain keyword search already achieves makes it impossible to say whether they
+helped. Third, the migration is additive rather than a redesign, because the
+vector table lands in the same file behind the same `store.py` boundary.
+
+### Heading-based chunking instead of a fixed-size window
+
+**Context** — Chunking strategy decides what a search result looks like to the
+agent.
+
+**Proposed** — Fixed-size windows with overlap, the standard RAG default.
+
+**Decided** — Each markdown section is one chunk, carrying its full heading
+path (`guide.md > Installation > Configuration`). Oversized sections split at
+paragraph boundaries and keep the heading; undersized ones merge forward.
+
+**Why** — A fixed window cuts mid-sentence and produces chunks with no
+provenance. The heading path tells the agent *where* a match lives, not only
+*what* matched — that is the whole difference between this and `grep`, and it
+is what makes a result quotable in an answer. Markdown already carries the
+document's structure; ignoring it to impose a character count throws away
+information the format hands over for free.
+
+### The server retrieves, it does not generate
+
+**Context** — An MCP server could answer the question itself by calling a model
+with the retrieved passages.
+
+**Proposed** — Add an `ask_docs` tool that returns a written answer.
+
+**Decided** — The server returns passages only. No LLM call, no API key, no
+answer generation.
+
+**Why** — The agent on the other end of the protocol is already a language
+model, and a better one than anything this server would call. Generating here
+would mean paying twice, adding a key and a network dependency to a tool whose
+entire pitch is that it has neither, and losing the citations — the agent needs
+the passage and its source to attribute the answer, not a paraphrase of it.
+
+### `get_document` exists alongside `search_docs`
+
+**Context** — `search_docs` returns the matching chunk. Watching a real session
+showed the agent immediately wanting the text around it.
+
+**Proposed** — Return larger chunks, or include neighbouring chunks in every
+search result.
+
+**Decided** — Keep chunks tight for ranking quality and add a second tool that
+returns one whole indexed document.
+
+**Why** — The two needs pull in opposite directions: precise retrieval wants
+small chunks, answering wants surrounding context. Inflating every result to
+serve the second need degrades the first and wastes the agent's context on
+passages it did not ask for. A separate tool lets the agent decide when it
+needs the full file — and in the FastAPI trial it chained the two on its own,
+which is the behaviour the tool was added for.
+
+### TOML for the eval question set, not YAML
+
+**Context** — SPEC section 7 specifies `evals/questions.yaml`.
+
+**Proposed** — Use YAML as specified, adding `pyyaml` as a dependency.
+
+**Decided** — `evals/questions.toml`, parsed with the standard library's
+`tomllib`.
+
+**Why** — The dependency policy allows exactly one runtime dependency, and the
+argument of the project is that it needs no infrastructure. Adding a parser
+dependency to read fifteen question-and-answer pairs would contradict that for
+no gain. The format is an implementation detail of the harness; the SPEC's
+intent — a plain-text, hand-editable question set in version control — is
+preserved.
+
+---
+
+## Implementation
+
 ### CLI scope creep
 
 **Context** — CLI scope creep
@@ -130,3 +230,48 @@ own docs. The project's two markdown files never exercised this path.
 **Decided** — store.py exposes the insert; cli.py calls it once per indexed file, in the same transaction path as the chunk inserts.
 
 **Why** — Found by the eval harness, the first thing to exercise the full path: index for real, then query for real. Closed-scope task decomposition keeps an agent from overreaching, but it leaves gaps at the seams. Per-layer tests do not cover them; at least one test must cross the whole system.
+
+### Chunk ordering must not rely on the chunk id
+
+**Context** — `get_document` reconstructs a document by concatenating its
+chunks. `store.get_chunks` ordered by `chunk_id`, which the CLI builds as
+`"{file_index}_{chunk_index}"`. FTS5 stores columns as text, so the sort was
+lexicographic: `0_10` landed between `0_1` and `0_2`. Every document with more
+than ten chunks came back scrambled — including the FastAPI corpus the README
+cites, and silently, since the text was all present.
+
+**Proposed** — Zero-pad the chunk id (`0_000010`), a one-line change that makes
+the existing lexicographic sort produce the right order.
+
+**Decided** — Store the position as its own `chunk_index` column, `UNINDEXED`
+in the FTS5 table, and order by `CAST(chunk_index AS INTEGER)`.
+
+**Why** — Padding hides ordering inside a string whose format nothing enforces;
+the next person to touch the id format reintroduces the bug with no test to
+catch it. A dedicated column makes the ordering a property of the data, states
+the intent in the schema, and is what Phase 2 will need anyway when chunks
+arrive from more than one writer. `ORDER BY rowid` would also work today, but
+couples document order to a storage implementation detail.
+
+**Found by** — Not by the unit tests. `test_get_chunks_ordered_by_chunk_id`
+passed throughout, because its fixture used two chunks. It took indexing a real
+folder and reading the output. Learning: fixtures that stay under ten items
+cannot see an ordering defect that begins at eleven.
+
+### The seam between the CLI and the store needs its own tests
+
+**Context** — Two defects — the `documents` table nobody populated, and the
+chunk ordering above — both lived in the gap between two correctly implemented
+modules, and both survived a green test suite.
+
+**Proposed** — Add more unit tests per module.
+
+**Decided** — Add `tests/test_integration.py`, which runs the published console
+scripts as subprocesses and drives the server over a real stdio MCP session,
+and require at least one whole-system test per feature.
+
+**Why** — More per-layer tests would not have caught either defect; both layers
+were right in isolation. SPEC section 8 already names this gap and calls a CI
+smoke test the mitigation, but a smoke test only proves the process starts. The
+tests that matter are the ones that index a real folder and then read it back
+through the real protocol, because that is the path the user's agent takes.

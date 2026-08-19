@@ -1,168 +1,125 @@
-# docs-mcp Tasks — Phase 1
+# mcp-docs-search Tasks — Phase 1
 
-## Introduction
+Derived from [`SPEC.md`](../SPEC.md) and [`AGENTS.md`](../AGENTS.md). Each task
+is self-contained, with acceptance criteria and dependency ordering.
 
-Based on SPEC.md and AGENTS.md, this list breaks Phase 1 into small, verifiable tasks with clear acceptance criteria and dependency ordering. Tasks are self-contained — only tasks dependent on the database or chunking implemented in this phase.
+Status legend: `[x]` done · `[~]` partially done · `[ ]` not started.
 
 ## Tasks
 
-### Task 1: Implement SQLite FTS5 (store.py)
-**Depends on:** None (starting point)
+### Task 1 — SQLite FTS5 store (`store.py`) — `[x]`
+**Depends on:** nothing
 
-- [ ] Implement `src/docs_mcp/store.py` with:
-  - `create_tables()` — creates `documents` and `chunks` tables (no `headings` table)
-  - `insert_chunk(chunk_id, document_path, heading_path, content)` (no `score`)
-  - `search(query, limit)` — returns `(chunk_id, document_path, heading_path, content, score)`
-- [ ] `create_tables()` fails gracefully if the .db file already exists (no --rebuild logic here)
-- [ ] `search()` validates `limit` (1-20), rejects empty query
-- [ ] `insert_chunk()` rejects empty `content`, length > 50000
-- [ ] Public members with type hints; `mypy --strict` passes
-- [ ] Tests in `tests/test_store.py`:
-  - table creation test
-  - insert test
-  - search test with relevant paragraph
+- [x] `create_tables(db_path)` creates `documents` and `chunks`; refuses an
+      existing file with an actionable `StoreError`
+- [x] `insert_document(conn, path, indexed_at)`
+- [x] `insert_chunk(conn, chunk_id, document_path, heading_path, content,
+      chunk_index)` — rejects empty content, content over 50 000 characters,
+      and a negative `chunk_index`
+- [x] `search(conn, query, limit)` and `search_with_score(...)` — validate the
+      query, clamp `limit` to 1–20, `ORDER BY rank` ascending
+- [x] `sanitise_query(query)` turns free text into literal FTS5 terms
+- [x] `get_chunks(conn, path)` returns a document in order (`ORDER BY CAST(
+      chunk_index AS INTEGER)`)
+- [x] `list_documents(conn)` returns path, indexed_at and chunk count
+- [x] Only `store.py` imports `sqlite3`; failures surface as `StoreError`
+- [x] Tests in `tests/test_store.py`, including boundaries and failure paths
 
-**Abbreviation:** "Store works and validates"
+### Task 2 — Heading-based chunking (`ingest.py`) — `[x]`
+**Depends on:** nothing (pure module, no storage)
 
-### Task 2: Heading-based chunking (ingest.py)
-**Depends on:** Task 1
+- [x] `chunk_markdown(source)` — text in, `Chunk` objects out; no filesystem
+- [x] `format_heading_path(rel_path, heading_path)`
+- [x] Each `#`/`##`/`###` section is one chunk carrying its full heading path
+- [x] Sections over 1500 characters split at paragraph boundaries
+- [x] Sections under 100 characters merge into the next one; merge runs before
+      split, and split chunks are never re-merged
+- [x] Headings inside fenced code blocks are not headings
+- [x] Trailing MkDocs `attr_list` anchors are stripped from heading text
+- [x] Tests in `tests/test_ingest.py`
 
-- [ ] Implement `src/docs_mcp/ingest.py` with:
-  - `scan_directory(root)` — returns list of .md/.mdx paths
-  - `parse_file(path)` — returns `(document_path, chunks)` where each chunk is `(heading_path, content)`
-- [ ] Heading-based chunking:
-  - Each section (#, ##, ###) is a chunk
-  - Length >1500 → split by paragraph maintaining heading
-  - Length <100 → merge with next
-  - Heading path preserved: `"guia.md > Instalación > Configuración"`
-- [ ] `parse_file()` normalizes line separators, removes empty lines at start/end
-- [ ] Public members with type hints; `mypy --strict` passes
-- [ ] Tests in `tests/test_chunking.py`:
-  - heading-based chunking test
-  - long section split test
-  - short section merge test
+### Task 3 — Indexing CLI (`cli.py`) — `[x]`
+**Depends on:** tasks 1, 2
 
-**Abbreviation:** "Heading-based chunking works"
+- [x] `mcp-docs-search <folder> --db <path> [--rebuild]`, no subcommand
+- [x] Walks `.md` files recursively; stored paths are relative and use forward
+      slashes on every platform
+- [x] Refuses an existing database unless `--rebuild`, naming the flag
+- [x] Records one `documents` row per indexed file
+- [x] Skips unreadable files without aborting the run
+- [x] Writes progress to stdout and problems to stderr
+- [x] Tests in `tests/test_cli.py`
 
-### Task 3: Index CLI (cli.py)
-**Depends on:** Task 1, Task 2
+### Task 4 — MCP server (`server.py`) — `[x]`
+**Depends on:** tasks 1, 3
 
-- [ ] Implement `src/docs_mcp/cli.py` with:
-  - `index_command(root, db_path)`
-- [ ] `index_command()`:
-  - Rejects path outside `root` (path traversal)
-  - Rejects if db exists without --rebuild (message actionable)
-  - Scans, parses, inserts chunks using store
-  - Logs to stderr only
-- [ ] Public members with type hints; `mypy --strict` passes
-- [ ] Tests in `tests/test_cli.py`:
-  - index command test with --rebuild
-  - edge cases
+- [x] `search_docs(query, limit=5)`, `list_sources()`, `get_document(path)`
+- [x] `limit` clamped to 1–20; empty query returns `[]`, not an error
+- [x] Serves only paths present in the index — no filesystem access at runtime
+- [x] Nothing writes to stdout, on success or failure paths
+- [x] Actionable message when the database is missing, then exit 1
+- [x] Tests in `tests/test_server.py`, including tool registration
 
-**Abbreviation:** "Index CLI works"
+### Task 5 — README — `[~]`
+**Depends on:** task 4
 
-### Task 4: MCP server (server.py)
-**Depends on:** Task 1, Task 3
+- [x] Problem, quick start, tool table, how it works, roadmap, how it was built
+- [x] Retrieval quality section filled with measured numbers
+- [x] How to verify the server locally
+- [ ] Demo GIF of a real client session (see task 9)
 
-- [ ] Implement `src/docs_mcp/server.py` with FastMCP:
-  - `search_docs(query, limit=5)`
-  - `list_sources()`
-  - `get_document(path)`
-- [ ] `search_docs()` validates query (not empty), clamps limit (1-20)
-- [ ] Rejects file access outside indexed directory (path traversal)
-- [ ] No output to stdout (logging to stderr only)
-- [ ] Tool routes registered with FastMCP
-- [ ] Public members with type hints; `mypy --strict` passes
-- [ ] Tests in `tests/test_tools.py`:
-  - search_docs test
-  - list_sources test
-  - get_document test with path traversal rejection
+### Task 6 — Evals and fixtures — `[~]`
+**Depends on:** tasks 2, 4
 
-**Abbreviation:** "MCP server works"
+- [x] `evals/run_evals.py` builds an index from the fixtures and reports
+      recall@1, recall@3 and the failing queries
+- [x] `evals/questions.toml` — 15 entries of `query` + `expected_source`
+- [x] Tests in `tests/test_evals.py` guard the harness and the question set
+- [ ] Rewrite the questions blind: answer from memory first, then check which
+      file actually holds the answer. The current set was written by reading
+      the corpus and overstates recall
+- [ ] Grow `evals/fixtures/` from 10 files to ~20
 
-### Task 5: README with required sections
-**Depends on:** Task 4
+### Task 7 — CI — `[x]`
+**Depends on:** tasks 1, 4
 
-- [ ] Write `README.md` with required sections from SPEC section 9:
-  1. **The problem** — the agent doesn't know your internal documentation. Three lines.
-  2. **Quick start** — index and connect, with copyable MCP client config block.
-  3. **Tools** — table from SPEC section 3.
-  4. **How it works** — heading-based chunking and FTS5, with decision rationale.
-  5. **Retrieval quality** — eval numbers (placeholder for now).
-  6. **Roadmap** — "Phase 2: embeddings on same SQLite, measured against this baseline."
-  7. **How this was built** — agent workflow. Links to `AGENTS.md` and `docs/decisions.md`.
-  8. **Demo** — GIF of a real session.
-- [ ] Placeholder for Retrieval quality (actual numbers from Task 6)
+- [x] `uv run pytest` and `mypy --strict` on push and pull request
+- [x] Ubuntu and Windows matrix
+- [x] Smoke test of the published console scripts
+- [x] Eval harness runs in CI so the README numbers cannot silently drift
 
-**Abbreviation:** "README complete"
+### Task 8 — `docs/decisions.md` — `[x]`
+**Depends on:** tasks 1, 2, 4
 
-### Task 6: Evals and fixtures (run_evals.py, questions.yaml)
-**Depends on:** Task 2, Task 4
+- [x] The four foundational entries: FTS5 over a vector store, heading-based
+      chunking over fixed windows, retrieval without generation, and
+      `get_document` alongside `search_docs`
+- [x] Implementation decisions worth questioning later
+- [x] Format: **Context → Proposed → Decided → Why**
 
-- [ ] Implement `evals/run_evals.py`:
-  - Loads `evals/questions.yaml`
-  - For each query runs `search_docs`
-  - Calculates recall@1 and recall@3
-  - Prints JSON response for README
-- [ ] Implement `evals/fixtures/` with ~20 representative .md files
-- [ ] `questions.yaml` structure: `query` + `expected_source`
-- [ ] `run_evals.py` rejects if db doesn't exist (actionable message)
-- [ ] Public members with type hints; `mypy --strict` passes
-- [ ] Tests in `tests/test_evals.py`:
-  - evals basic test
-  - fixture files test
+### Task 9 — Demo — `[~]`
+**Depends on:** tasks 4, 6
 
-**Abbreviation:** "Evals work"
+- [x] `scripts/mcp_smoke.py` drives the live server over stdio
+- [x] `scripts/demo-checklist.md` with the recording steps
+- [x] `scripts/demo.tape` so the GIF renders from one command
+- [x] `docs/demo-transcript.md` captured from a real run
+- [ ] Record the GIF and link it from the README
 
-### Task 7: GitHub Actions (ci.yml)
-**Depends on:** Task 1, Task 4
+### Task 10 — Integration coverage — `[x]`
+**Depends on:** tasks 3, 4
 
-- [ ] Implement `.github/workflows/ci.yml`:
-  - Runs `uv run pytest` on push/pr
-  - Runs `uv run mypy --strict src/` on push/pr
-- [ ] CI fails if tests or mypy fail
+- [x] `tests/test_integration.py` runs the published console scripts as
+      subprocesses and drives the server over a real stdio MCP session
+- [x] Covers the wiring SPEC section 8 lists as a known gap: `project.scripts`,
+      argument parsing and default paths
 
-**Abbreviation:** "CI set up"
+## How to verify a task
 
-### Task 8: docs/decisions.md with key decisions
-**Depends on:** Task 1, Task 2, Task 4
+```bash
+uv run pytest
+uv run mypy --strict src/ tests/ evals/ scripts/
+uv run python evals/run_evals.py
+```
 
-- [ ] Write entries for natural decisions:
-  - Why FTS5 and not vector store from the start
-  - Why heading-based chunking and not fixed-size windows
-  - Why server doesn't generate answers
-  - Why `get_document` exists alongside `search_docs`
-- [ ] Format: **Context → What was proposed → What was decided → Why**
-
-**Abbreviation:** "Decisions documented"
-
-### Task 9: Demo GIF recording checklist
-**Depends on:** Task 4, Task 6
-
-- [ ] Create `scripts/demo-checklist.md` with manual steps:
-  - Run `docs-mcp index ./evals/fixtures/demo.db --rebuild`
-  - Open OpenCode, connect to running MCP server
-  - Ask 2-3 questions from evals/questions.yaml
-  - Capture agent's answers with source citations
-  - Record screen with these steps
-  - Save transcript to `docs/demo-transcript.md`
-  - Generate GIF, upload to repo
-
-**Abbreviation:** "Demo checklist ready"
-
-## Summary
-
-- **9 total tasks** (under the limit)
-- **All self-contained** with clear acceptance criteria
-- **Dependency ordering** respects logical flow
-- **Each requires tests first** before implementation
-- **List ready to start**
-
-## How to verify each task
-
-1. Run `uv run pytest` → show test output
-2. Run `uv run mypy --strict src/` → must pass
-3. Show error if any stage fails before the next
-4. Don't mark any as complete without actual evidence
-
-When a task is ready (tests pass, mypy passes, commits made), mark it and move to the next.
+Do not mark a task done without the actual output.
