@@ -253,13 +253,70 @@ def test_sanitise_query_wraps_terms() -> None:
 
 
 def test_sanitise_query_escapes_quotes() -> None:
-    """Test that sanitise_query escapes internal quotes."""
-    assert sanitise_query('say "hi"') == '"say" """hi"""'
+    """Test that sanitise_query strips and escapes quotes."""
+    assert sanitise_query('say "hi"') == '"say" "hi"'
 
 
 def test_sanitise_query_empty() -> None:
     """Test that sanitise_query handles empty string."""
     assert sanitise_query("") == ""
+
+
+def test_sanitise_query_strips_punctuation() -> None:
+    """Test that sanitise_query strips FTS5 syntax characters."""
+    assert sanitise_query(
+        "I call an endpoint and it hangs forever, is there a timeout"
+    ) == '"I" "call" "an" "endpoint" "and" "it" "hangs" "forever" "is" "there" "a" "timeout"'
+    assert sanitise_query("what's the p95 latency?") == '"whats" "the" "p95" "latency"'
+    assert sanitise_query("error: connection refused") == '"error" "connection" "refused"'
+    assert sanitise_query("use --rebuild to recreate it") == '"use" "--rebuild" "to" "recreate" "it"'
+
+
+def test_sanitise_query_only_punctuation() -> None:
+    """Test that sanitise_query returns empty for punctuation-only input."""
+    assert sanitise_query("!!! ???") == ""
+
+
+def test_search_handles_punctuation_queries(tmp_path) -> None:
+    """Test that search handles queries with punctuation without FTS5 errors."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(
+            conn, "0_0", "doc1.md", "doc1.md > S",
+            "endpoint timeout configuration",
+        )
+        insert_chunk(
+            conn, "0_1", "doc2.md", "doc2.md > S",
+            "latency p95 metrics",
+        )
+        conn.commit()
+
+        queries = [
+            "I call an endpoint and it hangs forever, is there a timeout",
+            "what's the p95 latency?",
+            "error: connection refused",
+            "use --rebuild to recreate it",
+        ]
+        for q in queries:
+            results = search(conn, q, 5)
+            assert isinstance(results, list)
+    finally:
+        conn.close()
+
+
+def test_search_only_punctuation_returns_empty(tmp_path) -> None:
+    """Test that a query of only punctuation returns an empty list."""
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    try:
+        insert_chunk(conn, "0_0", "doc1.md", "doc1.md > S", "some content")
+        conn.commit()
+
+        results = search(conn, "!!! ???", 5)
+        assert results == []
+    finally:
+        conn.close()
 
 
 def test_search_falls_back_to_or(tmp_path: Path) -> None:

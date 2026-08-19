@@ -130,3 +130,25 @@ own docs. The project's two markdown files never exercised this path.
 **Decided** — store.py exposes the insert; cli.py calls it once per indexed file, in the same transaction path as the chunk inserts.
 
 **Why** — Found by the eval harness, the first thing to exercise the full path: index for real, then query for real. Closed-scope task decomposition keeps an agent from overreaching, but it leaves gaps at the seams. Per-layer tests do not cover them; at least one test must cross the whole system.
+
+### Punctuation must be stripped before FTS5 matching
+
+**Context** — A hand-written evaluation question containing a comma —
+"I call an endpoint and it hangs forever, is there a timeout" — raised
+`fts5: syntax error near ","`. `sanitise_query` split on whitespace and
+quoted each token, but the comma still broke the FTS5 parser inside the
+quotes.
+
+**Proposed** — Quoting alone was assumed sufficient to make operator
+characters inert.
+
+**Decided** — Each token is stripped of characters FTS5 treats as syntax
+before quoting. Alphanumerics and intra-word hyphen, underscore and dot
+are kept; everything else is dropped. Tokens that become empty are
+discarded.
+
+**Why** — Every query test and every generated evaluation question used
+text without punctuation. The first question written the way a person
+would actually write it broke the engine. The eval corpus does not only
+measure retrieval quality; it exercises input paths that unit tests do
+not represent.
