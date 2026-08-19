@@ -292,7 +292,7 @@ def test_sanitise_query_only_punctuation() -> None:
     assert sanitise_query("!!! ???") == ""
 
 
-def test_search_handles_punctuation_queries(tmp_path) -> None:
+def test_search_handles_punctuation_queries(tmp_path: Path) -> None:
     """Test that search handles queries with punctuation without FTS5 errors."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)
@@ -320,7 +320,7 @@ def test_search_handles_punctuation_queries(tmp_path) -> None:
         conn.close()
 
 
-def test_search_only_punctuation_returns_empty(tmp_path) -> None:
+def test_search_only_punctuation_returns_empty(tmp_path: Path) -> None:
     """Test that a query of only punctuation returns an empty list."""
     db_path = str(tmp_path / "test.db")
     conn = create_tables(db_path)

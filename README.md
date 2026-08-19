@@ -158,7 +158,7 @@ runs a fixed set of questions against a known corpus and reports how often the
 expected source appears in the results.
 
 ```
-recall@1: 0.60   recall@3: 0.87   (15 queries, 10 documents, 40 chunks)
+recall@1: 0.47   recall@3: 0.67   (15 queries, 10 documents, 40 chunks)
 ```
 
 Reproduce it with `uv run python evals/run_evals.py`; CI runs the same command
@@ -166,7 +166,7 @@ on every push, so these numbers cannot drift without the build noticing.
 
 **Read them with one caveat.** The current question set was written while
 looking at the corpus, which biases the wording towards the text it is supposed
-to find — so 0.60 and 0.87 flatter the system rather than measuring it. The
+to find — so 0.47 and 0.67 flatter the system rather than measuring it. The
 questions are being rewritten blind: answer from memory first, then check which
 file actually holds the answer. The honest number is expected to be lower, and
 will replace this one.
