@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import TypedDict
+from typing import NoReturn, TypedDict
 
 from mcp.server import MCPServer
 
@@ -28,9 +28,6 @@ DEFAULT_LIMIT = 5
 MIN_LIMIT = 1
 MAX_LIMIT = 20
 
-_conn: Connection | None = None
-
-
 class SearchResultItem(TypedDict):
     chunk_id: str
     document_path: str
@@ -43,12 +40,6 @@ class SourceInfo(TypedDict):
     path: str
     indexed_at: str
     chunk_count: int
-
-
-def _get_conn() -> Connection:
-    if _conn is None:
-        raise RuntimeError("Database connection not initialized")
-    return _conn
 
 
 def _clamp_limit(limit: int | None) -> int:
@@ -79,7 +70,9 @@ def _doc_to_dict(info: DocumentInfo) -> SourceInfo:
     )
 
 
-async def _search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchResultItem]:
+async def _search_docs(
+    conn: Connection, query: str, limit: int = DEFAULT_LIMIT
+) -> list[SearchResultItem]:
     clamped = _clamp_limit(limit)
     if not query or not query.strip():
         return []
@@ -87,27 +80,27 @@ async def _search_docs(query: str, limit: int = DEFAULT_LIMIT) -> list[SearchRes
     if not safe_query:
         return []
     try:
-        results = search_with_score(_get_conn(), safe_query, clamped)
+        results = search_with_score(conn, safe_query, clamped)
         return [_scored_to_dict(r) for r in results]
     except StoreError as exc:
         logger.error("search_docs failed: %s", exc)
         return []
 
 
-async def _list_sources() -> list[SourceInfo]:
+async def _list_sources(conn: Connection) -> list[SourceInfo]:
     try:
-        docs = list_documents(_get_conn())
+        docs = list_documents(conn)
         return [_doc_to_dict(d) for d in docs]
     except StoreError as exc:
         logger.error("list_sources failed: %s", exc)
         return []
 
 
-async def _get_document(path: str) -> str:
+async def _get_document(conn: Connection, path: str) -> str:
     if not path or not path.strip():
         return "Path parameter is required. Provide a document path from list_sources."
     try:
-        chunks = get_chunks(_get_conn(), path)
+        chunks = get_chunks(conn, path)
         if not chunks:
             return (
                 f"Document not found: '{path}'. "
@@ -127,26 +120,21 @@ def create_server(db_path: Path) -> MCPServer:
 
     Exits with code 1 if the database does not exist or cannot be opened.
     """
-    global _conn
+    def unusable_database() -> NoReturn:
+        sys.stderr.write(
+            f"Database not found: {db_path}. "
+            f"Run `mcp-docs-search ./docs --db {db_path}` first.\n"
+        )
+        sys.exit(1)
 
     if not db_path.exists():
-        msg = (
-            f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search ./docs --db {db_path}` first."
-        )
-        sys.stderr.write(msg + "\n")
-        sys.exit(1)
+        unusable_database()
 
     try:
-        _conn = open_connection(str(db_path))
+        conn = open_connection(str(db_path))
     except StoreError as exc:
-        msg = (
-            f"Database not found: {db_path}. "
-            f"Run `mcp-docs-search ./docs --db {db_path}` first."
-        )
         logger.error("Failed to open database at %s: %s", db_path, exc)
-        sys.stderr.write(msg + "\n")
-        sys.exit(1)
+        unusable_database()
 
     server = MCPServer("mcp-docs-search")
 
@@ -161,7 +149,7 @@ def create_server(db_path: Path) -> MCPServer:
         over get_document for discovery. Results are ordered most
         relevant first; try broader keywords if nothing matches.
         """
-        return await _search_docs(query, limit)
+        return await _search_docs(conn, query, limit)
 
     @server.tool()
     async def list_sources() -> list[SourceInfo]:
@@ -173,7 +161,7 @@ def create_server(db_path: Path) -> MCPServer:
         calling get_document, or when the agent needs to know the full
         corpus scope before searching.
         """
-        return await _list_sources()
+        return await _list_sources(conn)
 
     @server.tool()
     async def get_document(path: str) -> str:
@@ -186,7 +174,7 @@ def create_server(db_path: Path) -> MCPServer:
         specific information without knowing the source file. The path
         must match exactly what list_sources returns.
         """
-        return await _get_document(path)
+        return await _get_document(conn, path)
 
     return server
 

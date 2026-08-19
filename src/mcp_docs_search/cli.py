@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mcp_docs_search.ingest import chunk_markdown, format_heading_path
-from mcp_docs_search.store import create_tables, insert_chunk, insert_document
+from mcp_docs_search.store import (
+    StoreError,
+    commit,
+    create_tables,
+    insert_chunk,
+    insert_document,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         conn = create_tables(str(db_path))
-    except Exception as e:
+    except (StoreError, OSError) as e:
         print(f"Could not create database: {e}", file=sys.stderr)
         return 2
 
@@ -115,9 +121,9 @@ def main(argv: list[str] | None = None) -> int:
             insert_document(conn, rel_path, indexed_at)
             files_indexed += 1
 
-        conn.commit()
-    except Exception as e:
-        print(f"I/O error: {e}", file=sys.stderr)
+        commit(conn)
+    except (StoreError, OSError) as e:
+        print(f"Indexing failed: {e}", file=sys.stderr)
         return 2
     finally:
         conn.close()

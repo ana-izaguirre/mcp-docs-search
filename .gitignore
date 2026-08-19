@@ -6,3 +6,9 @@ __pycache__/
 .mypy_cache/
 .DS_Store
 evals-output.txt
+
+# coverage artefacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
