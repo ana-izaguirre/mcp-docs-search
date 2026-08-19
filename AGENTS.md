@@ -21,6 +21,29 @@ implemented, suggested, or scaffolded for:
 
 If a task seems to require any of these, stop and ask instead of implementing.
 
+## Trust boundary — the index is trusted input
+
+Everything this server returns is text from the indexed corpus, handed to a
+language model that is deciding what to do next. A document containing
+instructions arrives with the same standing as the user's own request. Anyone
+who can write a file into the indexed folder can put text in front of the agent.
+
+**Do not add sanitising, filtering, or escaping of document text.** It has been
+considered and rejected. Documentation legitimately contains commands, curl
+invocations and instruction-shaped prose; filtering would corrupt the corpus
+while stopping nobody determined. `tests/test_server.py` asserts that content
+comes back verbatim — if you find yourself making that test pass differently,
+stop and ask.
+
+This constrains the *documentation*, not the code: the boundary must stay
+stated in `README.md` and `docs/design.md`, so a reader knows to point this at
+documentation they control.
+
+Note what this does **not** relax. Query sanitising, the runtime filesystem ban,
+and parameterised SQL are all still required — those defend the server against
+its inputs. This section is about the corpus text the server deliberately
+passes through untouched.
+
 ## Technical constraints
 
 - **Python 3.12.** Type hints on every public function. `mypy --strict` must
