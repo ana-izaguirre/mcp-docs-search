@@ -128,7 +128,7 @@ runs a fixed set of questions against a known corpus and reports how often the
 expected source appears in the results.
 
 ```
-recall@1: 0.36   recall@3: 0.52   (25 queries, 21 documents, 84 chunks)
+recall@1: 0.30   recall@3: 0.44   MRR: 0.36   (50 queries, 21 documents, 84 chunks)
 ```
 
 Reproduce it with `uv run python evals/run_evals.py`; CI runs the same command
@@ -155,6 +155,30 @@ indexes a vocabulary. Nothing connects "keeps giving me the old values" to a
 page that says "stale entries expire on their own" — the words never overlap.
 That is precisely the gap embeddings close, and now it has a number attached
 to it.
+
+### The number the shipping rule actually uses
+
+Two recall percentages can move without the difference meaning anything. The
+harness therefore records a per-question baseline and reports what a change
+*did*, not just where it landed:
+
+```
+Against baseline: fixed 6, broke 0
+  + does the api use jwt or oauth
+  + are all endpoints paginated
+  ...
+  exact binomial p = 0.016 over 6 discordant -> significant
+```
+
+Only questions whose outcome flipped carry information, so the verdict is
+McNemar's exact test over them. With 50 questions the harness can defend a
+change of **5 net fixes (+10 points) or larger**; anything smaller it reports
+as indistinguishable from noise, and says so rather than letting a flattering
+percentage stand. That resolution is why there are 50 questions and not 25 —
+at 25 the floor was +20 points, wider than the gain Phase 2 is likely to
+deliver.
+
+Record a new baseline with `uv run python evals/run_evals.py --save-baseline`.
 
 ## Demo
 
