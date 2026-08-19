@@ -10,6 +10,8 @@ from mcp.types import CallToolResult
 
 import mcp_docs_search.server as server_module
 from mcp_docs_search.server import (
+    MAX_DOCUMENT_CHARS,
+    _assemble_document,
     _clamp_limit,
     _get_document,
     _list_sources,
@@ -401,3 +403,86 @@ def test_unreadable_database_is_reported_as_missing(
     err = capsys.readouterr().err
     assert "Database not found" in err
     assert "mcp-docs-search" in err
+
+
+# --- get_document is bounded ---------------------------------------------------
+
+def test_document_under_the_cap_is_returned_whole() -> None:
+    chunks = ["alpha" * 100, "beta" * 100]
+    result = _assemble_document(chunks, "small.md")
+
+    assert result == "\n\n".join(chunks)
+    assert "truncated" not in result
+
+
+def test_document_exactly_at_the_cap_is_not_truncated() -> None:
+    """The bound is inclusive: a document that just fits comes back whole."""
+    chunks = ["x" * MAX_DOCUMENT_CHARS]
+    result = _assemble_document(chunks, "exact.md")
+
+    assert result == chunks[0]
+    assert "truncated" not in result
+
+
+def test_document_one_char_over_the_cap_is_truncated() -> None:
+    chunks = ["x" * (MAX_DOCUMENT_CHARS + 1)]
+    result = _assemble_document(chunks, "over.md")
+
+    assert "truncated" in result
+    assert "search_docs" in result
+
+
+def test_truncation_never_exceeds_the_cap_in_body() -> None:
+    """The notice may push past the cap; the document text may not."""
+    chunks = ["y" * 20_000 for _ in range(10)]
+    result = _assemble_document(chunks, "big.md")
+
+    body = result.split("[truncated:")[0]
+    assert len(body) <= MAX_DOCUMENT_CHARS + len("\n\n")
+
+
+def test_truncation_cuts_at_a_chunk_boundary() -> None:
+    """A half-sentence is worse than a short document."""
+    chunks = [f"SECTION{i} " + "z" * 19_000 for i in range(10)]
+    result = _assemble_document(chunks, "big.md")
+
+    body = result.split("\n\n[truncated:")[0]
+    assert body in "\n\n".join(chunks)
+    for piece in body.split("\n\n"):
+        assert piece in chunks
+
+
+def test_truncation_notice_names_what_was_omitted() -> None:
+    chunks = ["w" * 20_000 for _ in range(5)]
+    result = _assemble_document(chunks, "manual.md")
+
+    assert "3 of 5 sections not shown" in result
+    assert "manual.md" in result
+    assert "50,000" in result
+
+
+def test_single_chunk_larger_than_the_cap_returns_only_the_notice() -> None:
+    """Nothing fits, so the agent gets a usable instruction instead of a wall."""
+    result = _assemble_document(["q" * 200_000], "huge.md")
+
+    assert result.startswith("[truncated:")
+    assert "search_docs" in result
+    assert len(result) < 1_000
+
+
+@pytest.mark.anyio
+async def test_get_document_applies_the_cap(tmp_path: Path) -> None:
+    path = tmp_path / "capped.db"
+    conn = create_tables(str(path))
+    conn.execute(
+        "INSERT INTO documents (path, indexed_at) VALUES ('big.md', '2025-01-01')"
+    )
+    for i in range(10):
+        insert_chunk(conn, f"0_{i}", "big.md", f"big.md > S{i}", "m" * 20_000, i)
+    conn.commit()
+    conn.close()
+
+    result = await _get_document(open_connection(str(path)), "big.md")
+
+    assert "truncated" in result
+    assert len(result) < 200_000

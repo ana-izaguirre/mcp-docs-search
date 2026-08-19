@@ -301,3 +301,33 @@ not represent.
 **Found by** — The evaluation harness was written to mirror real user input, not
 a contrived search API. Once a natural-language question included punctuation,
 FTS5 exposed the weakness immediately.
+
+### Truncate get_document rather than paginate it
+
+**Context** — `get_document` joined every chunk of a document with no upper
+bound. A 655 KB generated manual returned 648,412 characters — roughly 162,000
+tokens in one tool response, more than most context windows hold. `search_docs`
+clamps `limit` to 1–20 precisely so one call cannot flood the agent; its sibling
+had no equivalent bound, so the protection was one tool call away from
+irrelevant.
+
+**Proposed** — Add an `offset` parameter so the agent can page through a large
+document a window at a time.
+
+**Decided** — Cap the response at 50,000 characters, cut at a chunk boundary,
+and end with a notice naming how much was omitted and pointing at `search_docs`.
+No paging.
+
+**Why** — Paging invites the behaviour the server exists to prevent: an agent
+walking a 400-section manual page by page, spending its whole context to reach
+what one ranked search would have found. The heading-path chunk *is* the
+product; `get_document` exists for surrounding context, not for bulk reading.
+Truncating at a section boundary keeps the text quotable — a half-sentence is
+worse than a short document — and the notice matters as much as the cap, because
+a silently truncated document is one the agent will quote from as though it were
+complete. The cap is stated in the tool description too, since the agent plans
+around what the description promises.
+
+**Found by** — The security review, measuring worst-case output rather than
+reading the code. No test had ever assembled a document larger than a few
+kilobytes.
