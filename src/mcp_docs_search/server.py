@@ -28,6 +28,14 @@ DEFAULT_LIMIT = 5
 MIN_LIMIT = 1
 MAX_LIMIT = 20
 
+# Upper bound on what get_document returns in one response, in characters.
+# Roughly 12k tokens. A generated API manual can exceed half a megabyte, and
+# returning that whole would either overflow the agent's context or cost six
+# figures of tokens to answer what one chunk answers. Truncation happens at a
+# chunk boundary so the agent never receives a half-sentence.
+MAX_DOCUMENT_CHARS = 50_000
+
+
 class SearchResultItem(TypedDict):
     chunk_id: str
     document_path: str
@@ -96,6 +104,52 @@ async def _list_sources(conn: Connection) -> list[SourceInfo]:
         return []
 
 
+def _assemble_document(chunks: list[str], path: str) -> str:
+    """Join chunks into one document, bounded by MAX_DOCUMENT_CHARS.
+
+    Whole chunks are taken until the next one would cross the budget, so the
+    text never ends mid-sentence. When anything is left out, the result says
+    so and names the alternative, because a silently truncated document is a
+    document the agent will quote from as though it were complete.
+
+    Args:
+        chunks: The document's chunks, in order.
+        path: Document path, used in the truncation notice.
+
+    Returns:
+        The document, or its head plus a notice naming what was omitted.
+    """
+    separator = "\n\n"
+    kept: list[str] = []
+    used = 0
+
+    for chunk in chunks:
+        addition = len(chunk) + (len(separator) if kept else 0)
+        if used + addition > MAX_DOCUMENT_CHARS:
+            break
+        kept.append(chunk)
+        used += addition
+
+    if len(kept) == len(chunks):
+        return separator.join(chunks)
+
+    omitted_chunks = len(chunks) - len(kept)
+    omitted_chars = sum(len(c) for c in chunks[len(kept):])
+    notice = (
+        f"[truncated: {omitted_chars:,} of "
+        f"{sum(len(c) for c in chunks):,} characters omitted, "
+        f"{omitted_chunks} of {len(chunks)} sections not shown. "
+        f"This document exceeds the {MAX_DOCUMENT_CHARS:,}-character limit "
+        f"for get_document. Use search_docs to find the relevant section of "
+        f"'{path}' instead of reading it whole.]"
+    )
+
+    if not kept:
+        return notice
+
+    return separator.join(kept) + separator + notice
+
+
 async def _get_document(conn: Connection, path: str) -> str:
     if not path or not path.strip():
         return "Path parameter is required. Provide a document path from list_sources."
@@ -106,7 +160,7 @@ async def _get_document(conn: Connection, path: str) -> str:
                 f"Document not found: '{path}'. "
                 f"Use list_sources to see available documents."
             )
-        return "\n\n".join(chunks)
+        return _assemble_document(chunks, path)
     except StoreError as exc:
         logger.error("get_document failed: %s", exc)
         return (
@@ -167,12 +221,17 @@ def create_server(db_path: Path) -> MCPServer:
     async def get_document(path: str) -> str:
         """Retrieve the full content of one indexed document.
 
-        Returns the complete text of a single document, reconstructed
-        from all its chunks in order. Use this when the agent needs the
-        full context around a search result or already knows exactly
-        which file to read. Prefer search_docs when looking for
-        specific information without knowing the source file. The path
-        must match exactly what list_sources returns.
+        Returns the text of a single document, reconstructed from its
+        chunks in order. Use this when the agent needs the full context
+        around a search result or already knows exactly which file to
+        read. Prefer search_docs when looking for specific information
+        without knowing the source file. The path must match exactly
+        what list_sources returns.
+
+        Responses are capped at 50,000 characters. A document longer
+        than that is cut at a section boundary and ends with a notice
+        naming how much was omitted; search_docs is the way to reach
+        the rest.
         """
         return await _get_document(conn, path)
 

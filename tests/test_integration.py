@@ -234,3 +234,37 @@ async def test_unknown_document_answers_instead_of_failing(
     assert doc.is_error is not True
     assert "not found" in body.lower()
     assert "list_sources" in body
+
+
+@pytest.mark.anyio
+async def test_large_document_is_bounded_over_the_protocol(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Regression for the unbounded payload: a 600KB+ manual, end to end.
+
+    Before the cap this returned ~162,000 tokens in a single tool response.
+    """
+    folder = tmp_path_factory.mktemp("bigcorpus")
+    body = "".join(
+        f"## Section {i}\n\n{'lorem ipsum dolor sit amet ' * 60}\n\n"
+        for i in range(400)
+    )
+    (folder / "manual.md").write_text("# Big Manual\n\n" + body, encoding="utf-8")
+    db = tmp_path_factory.mktemp("bigdb") / "docs.db"
+
+    result = subprocess.run(
+        [str(INDEX_CMD), str(folder), "--db", str(db), "--rebuild"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(body) > 600_000, "fixture must exceed the cap by a wide margin"
+
+    async with stdio_client(_server_params(db)) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            doc = await session.call_tool("get_document", {"path": "manual.md"})
+            returned = (doc.structured_content or {})["result"]
+
+    assert len(returned) < 55_000, f"returned {len(returned):,} characters"
+    assert "truncated" in returned
+    assert "search_docs" in returned
