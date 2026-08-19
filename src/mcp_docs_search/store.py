@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 MAX_CONTENT_LENGTH = 50000
+MAX_SEARCH_LIMIT = 20
 
 __all__ = [
     "SearchResult",
@@ -17,6 +18,7 @@ __all__ = [
     "open_connection",
     "insert_document",
     "insert_chunk",
+    "commit",
     "search",
     "sanitise_query",
     "search_with_score",
@@ -190,119 +192,20 @@ def insert_chunk(
         raise StoreError(f"Failed to insert chunk into {document_path}") from exc
 
 
-def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
-    """Search chunks, ranked by BM25 relevance.
+def commit(conn: Connection) -> None:
+    """Commit the open transaction.
 
-    Args:
-        conn: An open database connection.
-        query: FTS5 query string.
-        limit: Maximum number of results, between 1 and 20.
-
-    Returns:
-        A list of (chunk_id, document_path, heading_path, content), most
-        relevant first.
+    Exists so callers never have to touch ``sqlite3`` themselves: a commit
+    can fail (disk full, database locked) and that failure has to reach the
+    CLI as a ``StoreError`` like every other storage failure.
 
     Raises:
-        StoreError: If the query cannot be executed.
+        StoreError: If the transaction cannot be committed.
     """
-    if not query or not query.strip():
-        return []
-
-    clamped_limit = max(1, min(limit, 20))
-
-    safe_query = sanitise_query(query)
-    if not safe_query:
-        return []
-
-    # Try the implicit AND (space-separated terms) first.
-    # If no chunk contains all terms, fall back to the explicit OR
-    # (quoted terms joined by OR) so that any matching term is still returned.
-    and_results = _search_and(conn, safe_query, clamped_limit)
-    if and_results:
-        return and_results
-
-    or_results = _search_or(conn, safe_query, clamped_limit)
-    return or_results
-
-
-def search_with_score(
-    conn: Connection,
-    query: str,
-    limit: int = 5,
-) -> list[ScoredResult]:
-    """Search chunks with BM25 relevance score.
-
-    Args:
-        conn: An open database connection.
-        query: FTS5 query string.
-        limit: Maximum number of results, between 1 and 20.
-
-    Returns:
-        A list of ScoredResult (chunk_id, document_path, heading_path,
-        content, score), most relevant first.
-
-    Raises:
-        StoreError: If the query cannot be executed.
-    """
-    if not query or not query.strip():
-        return []
-
-    clamped_limit = max(1, min(limit, 20))
-
-    safe_query = sanitise_query(query)
-    if not safe_query:
-        return []
-
-    and_results = _search_and_with_score(conn, safe_query, clamped_limit)
-    if and_results:
-        return and_results
-
-    or_results = _search_or_with_score(conn, safe_query, clamped_limit)
-    return or_results
-
-
-def _search_and(conn: Connection, query: str, limit: int) -> list[SearchResult]:
-    """Search chunks with implicit AND (all terms in the same chunk)."""
     try:
-        cursor = conn.execute(
-            """
-            SELECT chunk_id, document_path, heading_path, content
-            FROM chunks
-            WHERE chunks MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, limit),
-        )
+        conn.commit()
     except sqlite3.Error as exc:
-        raise StoreError(f"Search query failed: {query!r}") from exc
-    return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
-
-
-def _search_or(conn: Connection, query: str, limit: int) -> list[SearchResult]:
-    """Search chunks with explicit OR (any term in the chunk).
-
-    Converts the implicit AND query (space-separated terms) into an
-    explicit OR query (terms joined by ``OR``).  If the incoming *query*
-    has already been passed through :func:`sanitise_query`, each term is
-    already quoted and we simply swap the separator from whitespace to
-    ``" OR "``.
-    """
-    or_query = " OR ".join(query.split())
-    try:
-        cursor = conn.execute(
-            """
-            SELECT chunk_id, document_path, heading_path, content
-            FROM chunks
-            WHERE chunks MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (or_query, limit),
-        )
-    except sqlite3.Error as exc:
-        raise StoreError(f"Search query failed: {or_query!r}") from exc
-    return [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+        raise StoreError("Failed to commit the index") from exc
 
 
 _TOKEN_SANITISER = re.compile(r'[^a-zA-Z0-9._-]')
@@ -324,10 +227,17 @@ def sanitise_query(query: str) -> str:
     return " ".join(quoted)
 
 
-def _search_and_with_score(
-    conn: Connection, query: str, limit: int
+def _run_query(
+    conn: Connection, match_expr: str, limit: int
 ) -> list[ScoredResult]:
-    """Search chunks with implicit AND and BM25 score."""
+    """Execute one FTS5 match and return scored rows, most relevant first.
+
+    ``ORDER BY rank`` is ascending on purpose: ``bm25()`` returns negative
+    values where more negative means more relevant.
+
+    Raises:
+        StoreError: If the query cannot be executed.
+    """
     try:
         cursor = conn.execute(
             """
@@ -338,39 +248,73 @@ def _search_and_with_score(
             ORDER BY rank
             LIMIT ?
             """,
-            (query, limit),
+            (match_expr, limit),
         )
     except sqlite3.Error as exc:
-        raise StoreError(f"Search query failed: {query!r}") from exc
+        raise StoreError(f"Search query failed: {match_expr!r}") from exc
+    return [ScoredResult(*row) for row in cursor.fetchall()]
+
+
+def _search(conn: Connection, query: str, limit: int) -> list[ScoredResult]:
+    """Sanitise, clamp and run the query, with the AND-then-OR fallback.
+
+    Every search enters here, so sanitising is not something a caller can
+    forget: free text becomes literal quoted terms before it reaches FTS5.
+    An implicit AND runs first; if no chunk holds every term, the same terms
+    are retried joined by ``OR`` so a partial match still returns something.
+    """
+    if not query or not query.strip():
+        return []
+
+    clamped_limit = max(1, min(limit, MAX_SEARCH_LIMIT))
+
+    safe_query = sanitise_query(query)
+    if not safe_query:
+        return []
+
+    all_terms = _run_query(conn, safe_query, clamped_limit)
+    if all_terms:
+        return all_terms
+
+    return _run_query(conn, " OR ".join(safe_query.split()), clamped_limit)
+
+
+def search(conn: Connection, query: str, limit: int = 5) -> list[SearchResult]:
+    """Search chunks, ranked by BM25 relevance.
+
+    Args:
+        conn: An open database connection.
+        query: Free text. Sanitised internally, so FTS5 operators are
+            matched as literal words rather than interpreted.
+        limit: Maximum number of results, clamped to 1-20.
+
+    Returns:
+        A list of (chunk_id, document_path, heading_path, content), most
+        relevant first. Empty if the query has no searchable terms.
+
+    Raises:
+        StoreError: If the query cannot be executed.
+    """
     return [
-        ScoredResult(row[0], row[1], row[2], row[3], row[4])
-        for row in cursor.fetchall()
+        (r.chunk_id, r.document_path, r.heading_path, r.content)
+        for r in _search(conn, query, limit)
     ]
 
 
-def _search_or_with_score(
-    conn: Connection, query: str, limit: int
+def search_with_score(
+    conn: Connection,
+    query: str,
+    limit: int = 5,
 ) -> list[ScoredResult]:
-    """Search chunks with explicit OR and BM25 score."""
-    or_query = " OR ".join(query.split())
-    try:
-        cursor = conn.execute(
-            """
-            SELECT chunk_id, document_path, heading_path, content,
-                   bm25(chunks) AS score
-            FROM chunks
-            WHERE chunks MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (or_query, limit),
-        )
-    except sqlite3.Error as exc:
-        raise StoreError(f"Search query failed: {or_query!r}") from exc
-    return [
-        ScoredResult(row[0], row[1], row[2], row[3], row[4])
-        for row in cursor.fetchall()
-    ]
+    """Search chunks, returning the BM25 score alongside each result.
+
+    Same contract as :func:`search`; use this when the score itself is
+    needed, as the MCP server does when reporting results to the agent.
+
+    Raises:
+        StoreError: If the query cannot be executed.
+    """
+    return _search(conn, query, limit)
 
 
 def list_documents(conn: Connection) -> list[DocumentInfo]:

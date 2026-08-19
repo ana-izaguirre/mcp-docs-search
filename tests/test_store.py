@@ -2,6 +2,7 @@ from pathlib import Path
 import pytest
 from mcp_docs_search.store import (
     MAX_CONTENT_LENGTH,
+    commit,
     create_tables,
     get_chunks,
     insert_chunk,
@@ -630,3 +631,17 @@ def test_search_respects_limit(tmp_path: Path) -> None:
         assert len(search(conn, "alpha", 3)) == 3
     finally:
         conn.close()
+
+
+def test_commit_failure_raises_store_error(tmp_path: Path) -> None:
+    """A failed commit must surface as StoreError, never as sqlite3.Error.
+
+    cli.py catches (StoreError, OSError); a raw sqlite3 exception escaping
+    here would crash the indexer with a traceback instead of a message.
+    """
+    db_path = str(tmp_path / "test.db")
+    conn = create_tables(db_path)
+    conn.close()
+
+    with pytest.raises(StoreError, match="commit"):
+        commit(conn)
