@@ -11,10 +11,10 @@ any task. The task breakdown is in [`docs/tasks.md`](./docs/tasks.md).
 
 ## Scope boundaries — do not cross these
 
-This is Phase 1. The following are explicitly **out of scope** and must not be
-implemented, suggested, or scaffolded for:
+This is the finished scope. The following are explicitly **out of scope** and
+must not be implemented, suggested, or scaffolded for:
 
-- Embeddings, vector search, or any RAG technique (that is Phase 2)
+- Embeddings, vector search, or any RAG technique
 - Any call to an LLM or external API
 - Answer generation — this server retrieves, the agent generates
 - Web UI, PDF ingestion, incremental reindexing, reranking
@@ -44,15 +44,8 @@ and parameterised SQL are all still required — those defend the server against
 its inputs. This section is about the corpus text the server deliberately
 passes through untouched.
 
-**When Phase 2 begins**, the first two boundaries move and the others do not.
-The dependency decision is already made and recorded in `docs/decisions.md`:
-`sqlite-vec` for the vector index and `model2vec` for static embeddings. Both
-are pre-approved; anything beyond those two still needs explicit approval, and
-the one-runtime-dependency rule below becomes a three-runtime-dependency rule
-rather than an open door. An embeddings API and `sentence-transformers` were
-both considered and rejected — do not reintroduce either without raising it.
-
-Until Phase 2 is explicitly started, this section applies as written.
+None of these boundaries are provisional. There is no later milestone that
+relaxes them.
 
 ## Technical constraints
 
@@ -70,8 +63,8 @@ Until Phase 2 is explicitly started, this section applies as written.
   anywhere in `src/mcp_docs_search/server.py`, or in anything it imports, is a
   bug. The CLI is a separate entry point and *does* write progress to stdout.
 - **Storage isolation.** Only `store.py` imports `sqlite3`. It raises
-  `StoreError`; nothing above it knows the storage engine. This is what lets
-  Phase 2 add embeddings without touching the server.
+  `StoreError`; nothing above it knows the storage engine, so the storage
+  engine can change without the server noticing.
 - **Parsing is pure.** `ingest.py` does not touch the filesystem and does not
   import `store.py`. Text in, chunks out. Reading files and walking directories
   belong to the CLI layer.

@@ -28,8 +28,12 @@ Enter
 Sleep 800ms
 Type "uv run python scripts/mcp_smoke.py --db ./docs.db --query 'chunking headings'"
 Enter
-Sleep 6s
+Sleep 4500ms
 
-Type "# every result carries the file and heading path it came from"
+Type "# the unknown path above is deliberate: an error the agent can act on, not a crash"
+Enter
+Sleep 2s
+
+Type "# and every result carries the file and heading path it came from"
 Enter
 Sleep 3s
