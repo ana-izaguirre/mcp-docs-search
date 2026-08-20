@@ -41,12 +41,9 @@ That buys three things:
 **Zero infrastructure.** Clone, index, done. No Docker, no service to start, no
 API key. The barrier to trying this is a single command.
 
-**A measurable baseline.** Adding embeddings without knowing what plain keyword
-search already achieves means you can't tell whether they helped. The evaluation
-harness measures Phase 1 so Phase 2 has something to beat.
-
-**An additive migration path.** Phase 2 adds a vector table to the same database
-file. Nothing gets rewritten.
+**A measurable baseline.** Retrieval quality is only an opinion until something
+measures it. The evaluation harness puts a number on what plain keyword search
+achieves over this corpus, including where it gives out.
 
 ## The index is a build artifact, not state
 
@@ -73,8 +70,8 @@ Four modules, with one rule each:
 | `cli.py` | Walk, read, index | The only layer that writes to stdout |
 | `server.py` | MCP tools | No filesystem access at runtime; stdout is the protocol |
 
-The `store.py` boundary is what lets Phase 2 add embeddings without touching the
-server: nothing above it knows the storage engine.
+Nothing above `store.py` knows the storage engine, so the storage engine can
+change without the server noticing.
 
 ## Trust boundary
 

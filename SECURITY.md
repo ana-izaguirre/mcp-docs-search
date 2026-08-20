@@ -16,7 +16,7 @@ fix is going to take longer, you will be told that rather than left waiting.
 
 ## Supported versions
 
-Phase 1 is pre-1.0 and only `main` is supported. There are no maintained
+The project is pre-1.0 and only `main` is supported. There are no maintained
 release branches; fixes land on `main`.
 
 ## Scope

@@ -1,7 +1,8 @@
 # Recording the demo GIF
 
-The README's Demo section is the last open item of Phase 1. Everything up to
-the record button is prepared here; the recording itself needs a real terminal.
+`scripts/demo.tape` already renders the client half of the demo to
+`docs/demo.gif`. What is still worth recording is the agent half, which cannot
+be scripted; this file has the steps. It needs a real terminal.
 
 ## What the GIF has to show
 

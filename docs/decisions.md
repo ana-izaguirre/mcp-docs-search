@@ -15,16 +15,15 @@ embeddings in a vector database. The project deliberately does not start there.
 **Proposed** — Embed the chunks and store the vectors in a dedicated vector
 database, so semantic search works from day one.
 
-**Decided** — SQLite FTS5 with BM25 ranking for Phase 1, in a single `.db`
-file. Embeddings become one more table in the same file in Phase 2.
+**Decided** — SQLite FTS5 with BM25 ranking, in a single `.db` file.
 
 **Why** — Three reasons, in order of weight. First, it costs nothing to run:
 FTS5 ships inside the standard library's `sqlite3` module, so there is no
 service, no Docker, no API key, and trying the project is one command. Second,
 it produces a measurable baseline — adding embeddings without knowing what
 plain keyword search already achieves makes it impossible to say whether they
-helped. Third, the migration is additive rather than a redesign, because the
-vector table lands in the same file behind the same `store.py` boundary.
+helped. Third, it keeps the whole index one file behind one `store.py`
+boundary, which is what makes the `.db` a shippable build artifact.
 
 ### Heading-based chunking instead of a fixed-size window
 
@@ -249,8 +248,8 @@ in the FTS5 table, and order by `CAST(chunk_index AS INTEGER)`.
 **Why** — Padding hides ordering inside a string whose format nothing enforces;
 the next person to touch the id format reintroduces the bug with no test to
 catch it. A dedicated column makes the ordering a property of the data, states
-the intent in the schema, and is what Phase 2 will need anyway when chunks
-arrive from more than one writer. `ORDER BY rowid` would also work today, but
+the intent in the schema, and survives chunks arriving from more than one
+writer. `ORDER BY rowid` would also work today, but
 couples document order to a storage implementation detail.
 
 **Found by** — Not by the unit tests. `test_get_chunks_ordered_by_chunk_id`
@@ -367,68 +366,15 @@ remain required. The distinction is between text the server *interprets*, which
 is validated, and text it *transports*, which is not.
 
 
-### The Phase 2 dependency, and what it costs
-
-**Context** — The project's headline claim appears in four places: the
-`dependencies-1` badge, the README's "one runtime dependency, no vector
-database, no API keys, no infrastructure", `AGENTS.md`, and SPEC section 5
-("only `mcp` … a design decision, not a limitation"). Phase 2 is semantic
-search, which needs a vector index and something to produce vectors. No
-combination of those keeps the count at one, so the claim and the roadmap
-contradict each other and something has to give.
-
-**Proposed** — Defer the decision until Phase 2 starts and pick whatever fits
-when the code is being written.
-
-**Decided** — `sqlite-vec` for the vector index and `model2vec` for static
-embeddings, decided now, before any Phase 2 code exists.
-
-**Why** — Measured rather than argued:
-
-| Option | Installed size | What it breaks |
-|---|---|---|
-| `sqlite-vec` | 168 KB, no transitive dependencies | only the badge |
-| `model2vec` | 96 MB (numpy 59 MB, tokenizers 11 MB) | the badge; stays offline |
-| embeddings API | 168 KB + an API key | "no API keys"; indexing needs network |
-| `sentence-transformers` | 527 MB for the PyTorch wheel alone | "clone, index, done" |
-
-`sqlite-vec` was verified working before being chosen — loaded through the
-stdlib `sqlite3` module, and a `vec0` virtual table returned correct KNN
-results. It keeps the single-file story intact, which is the part of the pitch
-that actually matters: the `.db` stays a self-contained artifact you can build
-in CI and ship inside an image.
-
-The API route was rejected because it would put a secret in the indexing path
-and break the operational model in `docs/design.md` — you can no longer rebuild
-the index in CI without provisioning a key, and the `.db` stops being cheap to
-regenerate. `sentence-transformers` was rejected on the barrier to entry: 527 MB
-to try a tool whose entire argument is that trying it costs one command.
-
-The decision was taken before writing Phase 2 code because it determines the
-design rather than following from it.
-
-**Cost, stated plainly** — the badge goes from 1 to 3 when Phase 2 lands, and
-the README says so rather than quietly shipping a heavier tool behind a number
-that used to be true. A `dependencies-1` badge that stops being accurate is
-worse than a `dependencies-3` badge that is.
-
-**Open risk** — extension loading was confirmed on Linux with Python 3.12, but
-macOS system Python is frequently built without it and the Windows CI leg is
-unverified. If `sqlite_vec.load()` fails on either, the fallback is brute-force
-cosine similarity over the same `embeddings` table in pure Python — slower, but
-it keeps the schema and the single-file property. Phase 2's first task should
-be to confirm loading on all three platforms before anything is built on it.
-
-
 ### Report what a change did, not only where it landed
 
-**Context** — The README commits to a shipping rule: Phase 2 has to beat the
-Phase 1 baseline or it does not ship. With 25 questions each one was worth 4
-points of recall@1, and an exact test over the discordant pairs needs at least
-5 net fixes to reach p < 0.05. So the harness could only defend a +20 point
-jump. A +10 point improvement — a good result for hybrid retrieval — would have
-been indistinguishable from luck, and the rule would have been decided on
-impressions.
+**Context** — The README commits to a shipping rule: a retrieval change has to
+beat the recorded baseline or it does not ship. With 25 questions each one was
+worth 4 points of recall@1, and an exact test over the discordant pairs needs
+at least 5 net fixes to reach p < 0.05. So the harness could only defend a +20
+point jump. A +10 point improvement — a good result for a retrieval change —
+would have been indistinguishable from luck, and the rule would have been
+decided on impressions.
 
 **Proposed** — Publish recall@1 and recall@3 before and after, and compare the
 percentages.
@@ -440,10 +386,10 @@ questions. Print MRR alongside recall.
 **Why** — Two percentages moving is not evidence; the questions that changed
 outcome are. Reporting `fixed 6, broke 0, p = 0.016` makes the ship decision
 mechanical rather than a judgement call, and naming the broken questions is
-what makes a regression inspectable — hybrid retrieval reliably breaks some
-queries that BM25 got right, and an aggregate hides exactly those. Fifty
-questions puts the detection floor at +10 points, which is inside the range
-Phase 2 is likely to produce. MRR is there because it moves continuously and
+what makes a regression inspectable — a retrieval change reliably breaks some
+queries the previous ranking got right, and an aggregate hides exactly those.
+Fifty questions puts the detection floor at +10 points, which is inside the
+range a real change is likely to produce. MRR is there because it moves continuously and
 signals progress before recall@1 flips.
 
 **Cost** — Recall fell from 0.36/0.52 to 0.30/0.44 when the set grew, because

@@ -1,4 +1,4 @@
-# mcp-docs-search Tasks — Phase 1
+# mcp-docs-search Tasks
 
 Derived from [`SPEC.md`](../SPEC.md) and [`AGENTS.md`](../AGENTS.md). Each task
 is self-contained, with acceptance criteria and dependency ordering.
@@ -63,7 +63,7 @@ Status legend: `[x]` done · `[~]` partially done · `[ ]` not started.
 ### Task 5 — README — `[x]`
 **Depends on:** task 4
 
-- [x] Problem, quick start, tool table, how it works, roadmap, how it was built
+- [x] Problem, quick start, tool table, how it works, scope, how it was built
 - [x] Retrieval quality section filled with measured numbers
 - [x] How to verify the server locally
 - [x] Demo GIF of a real client session (see task 9)

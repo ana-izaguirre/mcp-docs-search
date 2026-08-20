@@ -1,8 +1,8 @@
-# SPEC — mcp-docs-search (Phase 1)
+# SPEC — mcp-docs-search
 
 > Implementation specification. Paste into the coding agent as initial context.
 > Goal: a small, finished MCP server in Python providing keyword search over a
-> folder of markdown. Embeddings are Phase 2 — **do not implement them here.**
+> folder of markdown. Keyword search is the whole scope — **no embeddings.**
 
 ---
 
@@ -25,8 +25,6 @@ The reasons belong in the README, because they are the argument of the project:
 
 - FTS5 ships inside the standard library's `sqlite3` module — **zero infrastructure dependencies**
 - It gives BM25 ranking out of the box, which is a real baseline rather than substring matching
-- In Phase 2, embeddings are added as one more table in the same file: the
-  migration is additive, not a redesign
 - A sample `.db` can be published in the repository so anyone can try it without indexing
 
 ---
@@ -94,8 +92,8 @@ mcp-docs-search-server --db ./docs.db
   command to run, not raise a raw `sqlite3` error. Errors returned to the agent
   must be actionable *by the agent* — it cannot read server logs.
 - **Storage isolation.** Only `store.py` knows the storage engine. It raises
-  `StoreError`; nothing above it imports `sqlite3`. This is what lets Phase 2 add
-  embeddings without touching the server.
+  `StoreError`; nothing above it imports `sqlite3`, so the storage engine can
+  change without the server noticing.
 - **Dependencies:** only `mcp`. Everything else from the standard library. This
   is a design decision, not a limitation.
 - **Packaging:** `pyproject.toml` with `uv`.
@@ -171,9 +169,8 @@ illustrative, not measured):
 recall@1: 0.65   recall@3: 0.85   (20 queries, chunk size 1500)
 ```
 
-Publishing an imperfect number is more credible than publishing none. And it
-sets up Phase 2: the same table, with embeddings, and the comparison writes
-itself.
+Publishing an imperfect number is more credible than publishing none. It is
+also what tells a reader whether this fits their corpus.
 
 A known candidate for the question set, found while indexing real documentation:
 `merge order` returns nothing while `merge ordering` returns a result. FTS5
@@ -218,7 +215,7 @@ survived a green suite.
 3. **Tools** — the table from section 3.
 4. **How it works** — heading-based chunking and FTS5, with the reasoning behind each decision.
 5. **Retrieval quality** — the eval numbers. **This section is what sets it apart.**
-6. **Roadmap** — "Phase 2: embeddings over the same SQLite database, measured against this baseline."
+6. **Scope** — keyword search is the finished shape, not a staging post.
 7. **How this was built** — the agent workflow. Links to `AGENTS.md` and `docs/decisions.md`.
 8. **Demo** — a GIF of a real session: question to the agent, answer with cited sources.
 
@@ -232,7 +229,7 @@ The rules for the agent in this repository:
 - "Never write to stdout in the server"; the CLI may
 - "Only the `mcp` dependency; anything else needs justification"
 - "Every new tool needs input validation and a test before implementation"
-- "Do not add embeddings, reranking or LLM calls — that is Phase 2"
+- "Do not add embeddings, reranking or LLM calls"
 - "Do not execute commands; do not read repository files unless told to"
 - "Do not implement functions belonging to other tasks"
 - What must pass before a task is considered done
@@ -262,11 +259,9 @@ not have it.
 - [x] The three tools respond from a real MCP client
 - [x] `mypy --strict` and `pytest` pass in CI (GitHub Actions)
 - [x] Evals running, with the numbers in the README
-- [ ] Honest question set — the current one was written while reading the
-      corpus and overstates recall
-- [ ] README with a demo GIF
+- [x] Honest question set — rewritten blind and grown to 50 questions
+- [x] README with a demo GIF
 - [x] AGENTS.md and docs/decisions.md written
 - [ ] Published to PyPI (optional, but adds credibility)
 
-**Add nothing else.** No embeddings, no PDFs, no reranking, no UI. Phase 2 is a
-separate milestone.
+**Add nothing else.** No embeddings, no PDFs, no reranking, no UI.

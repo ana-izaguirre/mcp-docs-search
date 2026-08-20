@@ -35,17 +35,8 @@ it — getting back the relevant passages with the file and heading they came fr
 ## Status
 
 Complete. The scope is closed, and the tests, the types and the retrieval
-numbers below all run in CI. Two things are knowingly unfinished, neither of
-them in the code:
-
-- **The supporting documents still describe a Phase 2 that is not coming.**
-  `AGENTS.md`, `SPEC.md` and `docs/design.md` were written while semantic search
-  was still planned, and refer to it throughout. Where they disagree with this
-  README about scope, this README is the current one.
-  `docs/decisions.md` is different: it is a historical log, and it records the
-  Phase 2 dependency decision because that decision genuinely was taken. It
-  should keep the entry rather than have it edited away.
-- **The demo GIF covers the client half only** — see [Demo](#demo).
+numbers below all run in CI. One thing is knowingly unfinished, and it is not
+in the code: the demo GIF covers the client half only — see [Demo](#demo).
 
 The task breakdown lives in [`docs/tasks.md`](./docs/tasks.md); open work is in
 [issues](https://github.com/ana-izaguirre/mcp-docs-search/issues).
