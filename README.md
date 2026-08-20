@@ -34,7 +34,7 @@ it — getting back the relevant passages with the file and heading they came fr
 
 ## Status
 
-Phase 1 is complete except for the demo GIF. The task breakdown lives in
+Complete, apart from the demo GIF. The task breakdown lives in
 [`docs/tasks.md`](./docs/tasks.md); open work is in
 [issues](https://github.com/ana-izaguirre/mcp-docs-search/issues).
 
@@ -115,8 +115,7 @@ and the `.db` file is a regenerable projection of it. Build it in CI, ship it in
 the image, run any number of read-only instances against identical copies.
 
 FTS5 gives real BM25 ranking with an inverted index, from the standard library,
-with nothing to operate. Phase 2 adds a vector table to the same file rather
-than replacing any of it.
+with nothing to operate.
 
 The full reasoning — chunking rules, the layering, and the trust boundary — is
 in [`docs/design.md`](./docs/design.md).
@@ -138,8 +137,10 @@ on every push, so these numbers cannot drift without the build noticing.
 a user's point of view without copying the corpus vocabulary — answer from
 memory first, then check which file actually holds the answer. An earlier set
 written while reading the corpus scored 0.60/0.87, which measured the
-question-writing rather than the retrieval. Publishing the lower number is the
-point: Phase 2 has something real to beat.
+question-writing rather than the retrieval. The lower number is the honest one,
+and it is the number that tells you whether this fits: keyword search works
+when your agent's queries share vocabulary with your documentation, and gives
+out when they do not.
 
 The harness prints the queries it failed, which is the useful part:
 
@@ -153,8 +154,9 @@ The harness prints the queries it failed, which is the useful part:
 Every failure has the same shape: the question describes a symptom, the corpus
 indexes a vocabulary. Nothing connects "keeps giving me the old values" to a
 page that says "stale entries expire on their own" — the words never overlap.
-That is precisely the gap embeddings close, and now it has a number attached
-to it.
+That is the known limit of keyword search, and it is why the number is
+published rather than buried: if your agents ask in symptoms, put the symptom
+words in your documentation, or expect these misses.
 
 ### The number the shipping rule actually uses
 
@@ -175,14 +177,14 @@ McNemar's exact test over them. With 50 questions the harness can defend a
 change of **5 net fixes (+10 points) or larger**; anything smaller it reports
 as indistinguishable from noise, and says so rather than letting a flattering
 percentage stand. That resolution is why there are 50 questions and not 25 —
-at 25 the floor was +20 points, wider than the gain Phase 2 is likely to
-deliver.
+at 25 the floor was +20 points, wide enough that a real improvement could pass
+for noise.
 
 Record a new baseline with `uv run python evals/run_evals.py --save-baseline`.
 
 ## Demo
 
-Not recorded yet — this is the one item of Phase 1 still open.
+Not recorded yet — the one item still open.
 [`scripts/demo-checklist.md`](./scripts/demo-checklist.md) has the steps and
 `scripts/demo.tape` renders the GIF in one command. A text transcript of a real
 session is in [`docs/demo-transcript.md`](./docs/demo-transcript.md) in the
@@ -214,25 +216,15 @@ Inside that boundary, these are structural rather than filtered:
 
 Full reasoning in [`docs/design.md`](./docs/design.md).
 
-## Roadmap
+## Scope
 
-**Phase 2 — semantic search.** Embeddings stored alongside the FTS5 index in the
-same SQLite file, with hybrid retrieval. The evaluation numbers above become the
-baseline it has to beat; if it doesn't, it doesn't ship.
+This does one thing: keyword search over a folder of markdown, with one runtime
+dependency. No embeddings, no vector database, no API keys — not as a staging
+post on the way to something bigger, but as the finished shape of the tool.
 
-It will cost the dependency count. Semantic search needs a vector index and
-something to produce vectors, and no combination keeps this at one dependency.
-The choice is [`sqlite-vec`](https://github.com/asg017/sqlite-vec) (168 KB, no
-transitive dependencies, keeps the `.db` a self-contained artifact) plus
-[`model2vec`](https://github.com/MinishLab/model2vec) for static embeddings —
-96 MB installed, but no API key, no network at query time, and no PyTorch. The
-alternatives were an embeddings API, which would put a key in the indexing path
-and break "build it in CI, ship it in the image", and `sentence-transformers`,
-whose PyTorch wheel alone is 527 MB.
-
-The badge above says 1 because that is true today. It becomes 3 when Phase 2
-lands, and the reasoning is in
-[`docs/decisions.md`](./docs/decisions.md#the-phase-2-dependency-and-what-it-costs).
+That is a real ceiling, and the section above measures exactly where it sits.
+A corpus whose vocabulary matches how people ask about it searches well here; one
+that does not needs semantic retrieval, which this deliberately is not.
 
 ## How this was built
 
