@@ -331,3 +331,55 @@ around what the description promises.
 **Found by** — The security review, measuring worst-case output rather than
 reading the code. No test had ever assembled a document larger than a few
 kilobytes.
+
+### The Phase 2 dependency, and what it costs
+
+**Context** — The project's headline claim appears in four places: the
+`dependencies-1` badge, the README's "one runtime dependency, no vector
+database, no API keys, no infrastructure", `AGENTS.md`, and SPEC section 5
+("only `mcp` … a design decision, not a limitation"). Phase 2 is semantic
+search, which needs a vector index and something to produce vectors. No
+combination of those keeps the count at one, so the claim and the roadmap
+contradict each other and something has to give.
+
+**Proposed** — Defer the decision until Phase 2 starts and pick whatever fits
+when the code is being written.
+
+**Decided** — `sqlite-vec` for the vector index and `model2vec` for static
+embeddings, decided now, before any Phase 2 code exists.
+
+**Why** — Measured rather than argued:
+
+| Option | Installed size | What it breaks |
+|---|---|---|
+| `sqlite-vec` | 168 KB, no transitive dependencies | only the badge |
+| `model2vec` | 96 MB (numpy 59 MB, tokenizers 11 MB) | the badge; stays offline |
+| embeddings API | 168 KB + an API key | "no API keys"; indexing needs network |
+| `sentence-transformers` | 527 MB for the PyTorch wheel alone | "clone, index, done" |
+
+`sqlite-vec` was verified working before being chosen — loaded through the
+stdlib `sqlite3` module, and a `vec0` virtual table returned correct KNN
+results. It keeps the single-file story intact, which is the part of the pitch
+that actually matters: the `.db` stays a self-contained artifact you can build
+in CI and ship inside an image.
+
+The API route was rejected because it would put a secret in the indexing path
+and break the operational model in `docs/design.md` — you can no longer rebuild
+the index in CI without provisioning a key, and the `.db` stops being cheap to
+regenerate. `sentence-transformers` was rejected on the barrier to entry: 527 MB
+to try a tool whose entire argument is that trying it costs one command.
+
+The decision was taken before writing Phase 2 code because it determines the
+design rather than following from it.
+
+**Cost, stated plainly** — the badge goes from 1 to 3 when Phase 2 lands, and
+the README says so rather than quietly shipping a heavier tool behind a number
+that used to be true. A `dependencies-1` badge that stops being accurate is
+worse than a `dependencies-3` badge that is.
+
+**Open risk** — extension loading was confirmed on Linux with Python 3.12, but
+macOS system Python is frequently built without it and the Windows CI leg is
+unverified. If `sqlite_vec.load()` fails on either, the fallback is brute-force
+cosine similarity over the same `embeddings` table in pure Python — slower, but
+it keeps the schema and the single-file property. Phase 2's first task should
+be to confirm loading on all three platforms before anything is built on it.

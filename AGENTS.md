@@ -21,6 +21,16 @@ implemented, suggested, or scaffolded for:
 
 If a task seems to require any of these, stop and ask instead of implementing.
 
+**When Phase 2 begins**, the first two boundaries move and the others do not.
+The dependency decision is already made and recorded in `docs/decisions.md`:
+`sqlite-vec` for the vector index and `model2vec` for static embeddings. Both
+are pre-approved; anything beyond those two still needs explicit approval, and
+the one-runtime-dependency rule below becomes a three-runtime-dependency rule
+rather than an open door. An embeddings API and `sentence-transformers` were
+both considered and rejected — do not reintroduce either without raising it.
+
+Until Phase 2 is explicitly started, this section applies as written.
+
 ## Technical constraints
 
 - **Python 3.12.** Type hints on every public function. `mypy --strict` must
