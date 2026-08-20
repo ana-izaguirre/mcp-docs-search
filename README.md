@@ -220,6 +220,20 @@ Full reasoning in [`docs/design.md`](./docs/design.md).
 same SQLite file, with hybrid retrieval. The evaluation numbers above become the
 baseline it has to beat; if it doesn't, it doesn't ship.
 
+It will cost the dependency count. Semantic search needs a vector index and
+something to produce vectors, and no combination keeps this at one dependency.
+The choice is [`sqlite-vec`](https://github.com/asg017/sqlite-vec) (168 KB, no
+transitive dependencies, keeps the `.db` a self-contained artifact) plus
+[`model2vec`](https://github.com/MinishLab/model2vec) for static embeddings —
+96 MB installed, but no API key, no network at query time, and no PyTorch. The
+alternatives were an embeddings API, which would put a key in the indexing path
+and break "build it in CI, ship it in the image", and `sentence-transformers`,
+whose PyTorch wheel alone is 527 MB.
+
+The badge above says 1 because that is true today. It becomes 3 when Phase 2
+lands, and the reasoning is in
+[`docs/decisions.md`](./docs/decisions.md#the-phase-2-dependency-and-what-it-costs).
+
 ## How this was built
 
 Written with an AI coding agent, directed by a written specification rather than
