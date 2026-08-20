@@ -365,3 +365,34 @@ future contributor being helpful.
 inputs: query sanitising, the runtime filesystem ban and parameterised SQL all
 remain required. The distinction is between text the server *interprets*, which
 is validated, and text it *transports*, which is not.
+
+
+### Report what a change did, not only where it landed
+
+**Context** — The README commits to a shipping rule: Phase 2 has to beat the
+Phase 1 baseline or it does not ship. With 25 questions each one was worth 4
+points of recall@1, and an exact test over the discordant pairs needs at least
+5 net fixes to reach p < 0.05. So the harness could only defend a +20 point
+jump. A +10 point improvement — a good result for hybrid retrieval — would have
+been indistinguishable from luck, and the rule would have been decided on
+impressions.
+
+**Proposed** — Publish recall@1 and recall@3 before and after, and compare the
+percentages.
+
+**Decided** — Grow the question set to 50, save a per-question baseline, and
+report `fixed N, broke M` with an exact binomial p-value over the discordant
+questions. Print MRR alongside recall.
+
+**Why** — Two percentages moving is not evidence; the questions that changed
+outcome are. Reporting `fixed 6, broke 0, p = 0.016` makes the ship decision
+mechanical rather than a judgement call, and naming the broken questions is
+what makes a regression inspectable — hybrid retrieval reliably breaks some
+queries that BM25 got right, and an aggregate hides exactly those. Fifty
+questions puts the detection floor at +10 points, which is inside the range
+Phase 2 is likely to produce. MRR is there because it moves continuously and
+signals progress before recall@1 flips.
+
+**Cost** — Recall fell from 0.36/0.52 to 0.30/0.44 when the set grew, because
+the new questions are as unflattering as the old ones and there are more of
+them. That is the number getting more honest, not the retrieval getting worse.

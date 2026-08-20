@@ -89,9 +89,10 @@ def test_recall_is_reported_and_within_range(
     eval_db: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Guards the harness itself: it must run and print parseable metrics."""
-    from evals.run_evals import run_questions
+    from evals.run_evals import evaluate, report
 
-    run_questions(eval_db, _questions())
+    outcomes = evaluate(eval_db, _questions())
+    report(outcomes, documents=21, chunks=84, baseline=None)
     out = capsys.readouterr().out
 
     assert "recall@1:" in out and "recall@3:" in out
@@ -109,10 +110,90 @@ def test_harness_reports_the_documents_it_failed_on(
     eval_db: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """SPEC section 7: failing queries must be listed so they can be reasoned about."""
-    from evals.run_evals import run_questions
+    from evals.run_evals import evaluate, report
 
-    run_questions(eval_db, [{"query": "zzz nonexistent term", "expected_source": "logging.md"}])
+    outcomes = evaluate(
+        eval_db, [{"query": "zzz nonexistent term", "expected_source": "logging.md"}]
+    )
+    report(outcomes, documents=21, chunks=84, baseline=None)
     out = capsys.readouterr().out
 
     assert "Failures:" in out
     assert "logging.md" in out
+
+
+# --- the baseline comparison, which is what the shipping rule rests on --------
+
+
+@pytest.mark.parametrize(
+    ("fixed", "broken", "expected"),
+    [(5, 0, 0.031), (4, 0, 0.062), (7, 1, 0.035), (6, 1, 0.062), (0, 0, 1.0)],
+)
+def test_exact_binomial_matches_hand_calculation(
+    fixed: int, broken: int, expected: float
+) -> None:
+    """McNemar's exact test. Wrong arithmetic here would mislead a ship decision."""
+    from evals.run_evals import _exact_binomial_p
+
+    assert abs(_exact_binomial_p(fixed, broken) - expected) < 0.001
+
+
+def test_five_net_fixes_is_the_significance_floor() -> None:
+    """Documents the harness's resolution: fewer than 5 cannot reach p < 0.05."""
+    from evals.run_evals import MIN_DISCORDANT_FOR_SIGNIFICANCE, _exact_binomial_p
+
+    assert _exact_binomial_p(MIN_DISCORDANT_FOR_SIGNIFICANCE - 1, 0) >= 0.05
+    assert _exact_binomial_p(MIN_DISCORDANT_FOR_SIGNIFICANCE, 0) < 0.05
+
+
+def test_comparison_names_fixed_and_broken_questions(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """'Fixed 6, broke 1' is the number that decides shipping, not two percentages."""
+    from evals.run_evals import Outcome, report
+
+    outcomes = [
+        Outcome("now works", "a.md", 1, ["a.md"]),
+        Outcome("now broken", "b.md", 3, ["z.md", "y.md", "b.md"]),
+        Outcome("unchanged", "c.md", 1, ["c.md"]),
+    ]
+    baseline = {"now works": 2, "now broken": 1, "unchanged": 1}
+
+    report(outcomes, documents=3, chunks=3, baseline=baseline)
+    out = capsys.readouterr().out
+
+    assert "fixed 1, broke 1" in out
+    assert "+ now works" in out
+    assert "- now broken" in out
+
+
+def test_comparison_ignores_questions_absent_from_the_baseline(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Adding questions must not be scored as fixes."""
+    from evals.run_evals import Outcome, report
+
+    outcomes = [
+        Outcome("old", "a.md", 1, ["a.md"]),
+        Outcome("brand new", "b.md", 1, ["b.md"]),
+    ]
+
+    report(outcomes, documents=2, chunks=2, baseline={"old": 1})
+    out = capsys.readouterr().out
+
+    assert "fixed 0, broke 0" in out
+    assert "brand new" not in out
+
+
+def test_mrr_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
+    """MRR moves continuously, so it signals progress before recall@1 flips."""
+    from evals.run_evals import Outcome, report
+
+    report(
+        [Outcome("q", "a.md", 2, ["z.md", "a.md"])],
+        documents=1,
+        chunks=1,
+        baseline=None,
+    )
+
+    assert "MRR: 0.50" in capsys.readouterr().out
