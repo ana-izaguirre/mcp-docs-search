@@ -1,0 +1,27 @@
+# Keeps the SHA-pinned Actions and the dependency graph current.
+#
+# Pinning by commit is what stops a moved tag from changing what CI runs;
+# Dependabot is what stops those pins from silently going stale. The two
+# belong together -- a pin nobody updates is a vulnerability with a longer
+# fuse.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+    groups:
+      dev-dependencies:
+        dependency-type: development
