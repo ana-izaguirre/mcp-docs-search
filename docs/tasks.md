@@ -60,13 +60,13 @@ Status legend: `[x]` done · `[~]` partially done · `[ ]` not started.
 - [x] Actionable message when the database is missing, then exit 1
 - [x] Tests in `tests/test_server.py`, including tool registration
 
-### Task 5 — README — `[~]`
+### Task 5 — README — `[x]`
 **Depends on:** task 4
 
 - [x] Problem, quick start, tool table, how it works, roadmap, how it was built
 - [x] Retrieval quality section filled with measured numbers
 - [x] How to verify the server locally
-- [ ] Demo GIF of a real client session (see task 9)
+- [x] Demo GIF of a real client session (see task 9)
 
 ### Task 6 — Evals and fixtures — `[x]`
 **Depends on:** tasks 2, 4
@@ -96,14 +96,17 @@ Status legend: `[x]` done · `[~]` partially done · `[ ]` not started.
 - [x] Implementation decisions worth questioning later
 - [x] Format: **Context → Proposed → Decided → Why**
 
-### Task 9 — Demo — `[~]`
+### Task 9 — Demo — `[x]`
 **Depends on:** tasks 4, 6
 
 - [x] `scripts/mcp_smoke.py` drives the live server over stdio
 - [x] `scripts/demo-checklist.md` with the recording steps
 - [x] `scripts/demo.tape` so the GIF renders from one command
 - [x] `docs/demo-transcript.md` captured from a real run
-- [ ] Record the GIF and link it from the README
+- [x] Record the GIF and link it from the README — `scripts/demo.tape`
+      rendered to `docs/demo.gif`, covering indexing and the live stdio
+      session. The agent half stays unscripted; the checklist keeps the
+      steps for recording it live.
 
 ### Task 10 — Integration coverage — `[x]`
 **Depends on:** tasks 3, 4

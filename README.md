@@ -34,7 +34,7 @@ it — getting back the relevant passages with the file and heading they came fr
 
 ## Status
 
-Complete, apart from the demo GIF. The task breakdown lives in
+Complete. The task breakdown lives in
 [`docs/tasks.md`](./docs/tasks.md); open work is in
 [issues](https://github.com/ana-izaguirre/mcp-docs-search/issues).
 
@@ -184,11 +184,25 @@ Record a new baseline with `uv run python evals/run_evals.py --save-baseline`.
 
 ## Demo
 
-Not recorded yet — the one item still open.
-[`scripts/demo-checklist.md`](./scripts/demo-checklist.md) has the steps and
-`scripts/demo.tape` renders the GIF in one command. A text transcript of a real
-session is in [`docs/demo-transcript.md`](./docs/demo-transcript.md) in the
-meantime.
+![Indexing a docs folder, then driving the live MCP server over stdio](./docs/demo.gif)
+
+Indexing a folder, then talking to the live server the way a client does: the
+tools it advertises, a search returning heading paths and BM25 scores, and
+`get_document` on both a real path and a missing one.
+
+It is rendered from [`scripts/demo.tape`](./scripts/demo.tape) with
+[VHS](https://github.com/charmbracelet/vhs), so it re-renders in one command
+whenever the output changes:
+
+```bash
+vhs scripts/demo.tape
+```
+
+What it deliberately does not show is an agent picking these tools on its own —
+that half cannot be scripted. For that,
+[`docs/demo-transcript.md`](./docs/demo-transcript.md) has a real session in
+text, and [`scripts/demo-checklist.md`](./scripts/demo-checklist.md) has the
+steps for recording one live.
 
 ## Security
 
