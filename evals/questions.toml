@@ -99,3 +99,109 @@ expected_source = "versioning.md"
 [[question]]
 query = "what actually runs when I deploy this, how many processes"
 expected_source = "architecture.md"
+
+# --- second pass -------------------------------------------------------------
+# Same method: phrased as a user would ask, never reusing the wording of the
+# file that should answer. Written to raise the question count to 50, which is
+# what the harness needs to defend a +10 point change rather than only a +20
+# one. See issue #18.
+
+[[question]]
+query = "the command finished with a number and I do not know what it means"
+expected_source = "cli_reference.md"
+
+[[question]]
+query = "can I make my terminal finish the commands when I hit tab"
+expected_source = "cli_reference.md"
+
+[[question]]
+query = "what talks to what inside this thing"
+expected_source = "architecture.md"
+
+[[question]]
+query = "why is this one big program instead of lots of small ones"
+expected_source = "architecture.md"
+
+[[question]]
+query = "how far back in time can I go if data got corrupted"
+expected_source = "backups.md"
+
+[[question]]
+query = "does the backup also cover the files people uploaded"
+expected_source = "backups.md"
+
+[[question]]
+query = "how long until my change is visible to everyone"
+expected_source = "caching.md"
+
+[[question]]
+query = "the new person should be able to look but not change anything"
+expected_source = "permissions.md"
+
+[[question]]
+query = "if I grant access to the parent does the child get it too"
+expected_source = "permissions.md"
+
+[[question]]
+query = "can I just run more copies of this to handle more load"
+expected_source = "scaling.md"
+
+[[question]]
+query = "which piece cannot simply be duplicated"
+expected_source = "scaling.md"
+
+[[question]]
+query = "how do I make it break on purpose to check my error handling"
+expected_source = "testing.md"
+
+[[question]]
+query = "how much warning do I get before something disappears"
+expected_source = "versioning.md"
+
+[[question]]
+query = "I want to be woken up when something goes wrong"
+expected_source = "metrics.md"
+
+[[question]]
+query = "how long do you keep this stuff before deleting it"
+expected_source = "logging.md"
+
+[[question]]
+query = "where does everything from all the machines end up together"
+expected_source = "logging.md"
+
+[[question]]
+query = "who changed what and when, is there a history"
+expected_source = "security.md"
+
+[[question]]
+query = "how many calls do I have left before I get cut off"
+expected_source = "rate_limiting.md"
+
+[[question]]
+query = "we need more capacity than what we were given"
+expected_source = "rate_limiting.md"
+
+[[question]]
+query = "how do I undo a schema change that went wrong"
+expected_source = "migrations.md"
+
+[[question]]
+query = "things are arriving in a different order than they happened"
+expected_source = "webhooks.md"
+
+[[question]]
+query = "you tried to reach my server while it was down"
+expected_source = "webhooks.md"
+
+[[question]]
+query = "it is far too chatty, how do I quiet it down"
+expected_source = "configuration.md"
+
+[[question]]
+query = "how does the orchestrator know my service is still alive"
+expected_source = "deployment.md"
+
+[[question]]
+query = "what fields does a record have and which ones are mandatory"
+expected_source = "data_model.md"
