@@ -128,7 +128,7 @@ runs a fixed set of questions against a known corpus and reports how often the
 expected source appears in the results.
 
 ```
-recall@1: 0.36   recall@3: 0.52   (25 queries, 21 documents, 84 chunks)
+recall@1: 0.30   recall@3: 0.44   MRR: 0.36   (50 queries, 21 documents, 84 chunks)
 ```
 
 Reproduce it with `uv run python evals/run_evals.py`; CI runs the same command
@@ -156,6 +156,30 @@ page that says "stale entries expire on their own" — the words never overlap.
 That is precisely the gap embeddings close, and now it has a number attached
 to it.
 
+### The number the shipping rule actually uses
+
+Two recall percentages can move without the difference meaning anything. The
+harness therefore records a per-question baseline and reports what a change
+*did*, not just where it landed:
+
+```
+Against baseline: fixed 6, broke 0
+  + does the api use jwt or oauth
+  + are all endpoints paginated
+  ...
+  exact binomial p = 0.016 over 6 discordant -> significant
+```
+
+Only questions whose outcome flipped carry information, so the verdict is
+McNemar's exact test over them. With 50 questions the harness can defend a
+change of **5 net fixes (+10 points) or larger**; anything smaller it reports
+as indistinguishable from noise, and says so rather than letting a flattering
+percentage stand. That resolution is why there are 50 questions and not 25 —
+at 25 the floor was +20 points, wider than the gain Phase 2 is likely to
+deliver.
+
+Record a new baseline with `uv run python evals/run_evals.py --save-baseline`.
+
 ## Demo
 
 Not recorded yet — this is the one item of Phase 1 still open.
@@ -163,6 +187,32 @@ Not recorded yet — this is the one item of Phase 1 still open.
 `scripts/demo.tape` renders the GIF in one command. A text transcript of a real
 session is in [`docs/demo-transcript.md`](./docs/demo-transcript.md) in the
 meantime.
+
+## Security
+
+**The index is trusted input.** Everything this server returns is corpus text
+handed to a model that is deciding what to do next, so anyone who can write a
+file into the indexed folder can put text in front of your agent. Point it at
+documentation you control; treat a public wiki or a dependency's vendored docs
+the way you would treat any untrusted input to an LLM.
+
+The server does not sanitise document text, deliberately — documentation is full
+of commands and instruction-shaped prose, and filtering it would corrupt the
+corpus while stopping nobody. Saying where the boundary sits is worth more than
+a filter that pretends it isn't there.
+
+Inside that boundary, these are structural rather than filtered:
+
+| | |
+|---|---|
+| **No path traversal** | The server never touches the filesystem at runtime. `get_document` serves only paths already in the index, so there is no code path from a tool argument to a file read |
+| **No SQL injection** | Every statement is parameterised; no query is built by concatenation |
+| **No FTS5 operator injection** | Free text is sanitised into literal quoted terms, so `NEAR(`, `*` and `"` match as words |
+| **No symlink escape** | Directory symlinks are not followed when walking the corpus |
+| **Bounded responses** | `search_docs` clamps `limit` to 1–20; `get_document` caps at 50,000 characters and says when it truncated |
+| **stdout is the protocol** | Nothing in the server writes to it, with a test that asserts so |
+
+Full reasoning in [`docs/design.md`](./docs/design.md).
 
 ## Roadmap
 
