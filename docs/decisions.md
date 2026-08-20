@@ -331,3 +331,37 @@ around what the description promises.
 **Found by** — The security review, measuring worst-case output rather than
 reading the code. No test had ever assembled a document larger than a few
 kilobytes.
+
+### Do not sanitise document text
+
+**Context** — Everything the server returns is corpus text handed to a language
+model that is deciding what to do next. A security review demonstrated the
+consequence: a document containing `IGNORE ALL PREVIOUS INSTRUCTIONS...` is
+returned to the agent verbatim, with the same standing as the user's own
+request.
+
+**Proposed** — Strip or escape instruction-shaped content — imperative phrasing
+aimed at the assistant, shell commands, obvious injection markers — before
+returning chunks.
+
+**Decided** — Return corpus text untouched. State the boundary instead, in
+`README.md`, `docs/design.md` and `AGENTS.md`, and lock it with a test that
+asserts content comes back verbatim.
+
+**Why** — Any filter accurate enough to catch a real injection would also
+destroy legitimate documentation: install guides are made of `curl ... | sh`,
+runbooks are written in the imperative, and security docs quote attacks in full.
+The filter would corrupt the corpus for every honest user while stopping nobody
+who rephrased. And a filter creates a worse failure than no filter — it invites
+pointing the tool at untrusted corpora on the belief that something is checking,
+when the real control is choosing what to index.
+
+The honest control is upstream: point this at documentation you control. Saying
+that plainly is worth more than a filter that pretends the boundary is not
+there. The verbatim test exists so the decision cannot be quietly reversed by a
+future contributor being helpful.
+
+**Note** — This does not relax the defences that protect the server from its own
+inputs: query sanitising, the runtime filesystem ban and parameterised SQL all
+remain required. The distinction is between text the server *interprets*, which
+is validated, and text it *transports*, which is not.

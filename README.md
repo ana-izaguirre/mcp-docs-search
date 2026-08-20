@@ -164,6 +164,32 @@ Not recorded yet — this is the one item of Phase 1 still open.
 session is in [`docs/demo-transcript.md`](./docs/demo-transcript.md) in the
 meantime.
 
+## Security
+
+**The index is trusted input.** Everything this server returns is corpus text
+handed to a model that is deciding what to do next, so anyone who can write a
+file into the indexed folder can put text in front of your agent. Point it at
+documentation you control; treat a public wiki or a dependency's vendored docs
+the way you would treat any untrusted input to an LLM.
+
+The server does not sanitise document text, deliberately — documentation is full
+of commands and instruction-shaped prose, and filtering it would corrupt the
+corpus while stopping nobody. Saying where the boundary sits is worth more than
+a filter that pretends it isn't there.
+
+Inside that boundary, these are structural rather than filtered:
+
+| | |
+|---|---|
+| **No path traversal** | The server never touches the filesystem at runtime. `get_document` serves only paths already in the index, so there is no code path from a tool argument to a file read |
+| **No SQL injection** | Every statement is parameterised; no query is built by concatenation |
+| **No FTS5 operator injection** | Free text is sanitised into literal quoted terms, so `NEAR(`, `*` and `"` match as words |
+| **No symlink escape** | Directory symlinks are not followed when walking the corpus |
+| **Bounded responses** | `search_docs` clamps `limit` to 1–20; `get_document` caps at 50,000 characters and says when it truncated |
+| **stdout is the protocol** | Nothing in the server writes to it, with a test that asserts so |
+
+Full reasoning in [`docs/design.md`](./docs/design.md).
+
 ## Roadmap
 
 **Phase 2 — semantic search.** Embeddings stored alongside the FTS5 index in the
